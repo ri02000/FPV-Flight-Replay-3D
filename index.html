@@ -101,7 +101,7 @@
         <button type="button" id="restart">↺ 처음으로</button>
         <button type="button" id="fit">⊞ 전체 보기</button>
       </div>
-      <button type="button" id="record" style="width:100%;margin-top:9px">● 30초 영상 자동 저장 (WebM)</button>
+      <button type="button" id="record" style="width:100%;margin-top:9px">● 30초 영상 자동 저장</button>
       <div id="status" role="status" aria-live="polite">지도를 불러오는 중…</div>
     </section>
     <p class="foot">지도: OpenStreetMap · EOX Sentinel-2 (2016) · 고도: Mapzen/AWS. 실사 3D 메쉬가 아닌 DEM 기반 지형이야. 경로선은 현재 지표에 드리워지며 드론 실제 고도는 우측에 수치로 표시돼. 인터넷 연결 필요.</p>
@@ -260,7 +260,7 @@
       const dt=Math.max(0,Math.min(.075,(ts-state.lastFrame)/1000));state.lastFrame=ts;
       state.progress=Math.min(1,state.progress+dt/Number($('duration').value));
       renderProgress();
-      if(state.progress>=1){stopPlay();showStatus('비행 완료 · 전체 경로를 확인해 봐.');if(state.recording)finishRecording();return;}
+      if(state.progress>=1){stopPlay();fitAll(true);showStatus('비행 완료 · 전체 경로를 보여주는 중.');if(state.recording)setTimeout(finishRecording,2300);return;}
       raf=requestAnimationFrame(tick);
     }
     function startPlay(){
@@ -276,7 +276,7 @@
     $('restart').onclick=()=>{if(state.recording)return;stopPlay();state.progress=0;renderProgress(true);fitAll(true);showStatus('처음으로 돌아왔어.');};
     $('fit').onclick=()=>{fitAll(true);};
     $('demo').onclick=()=>{loadBuiltIn();showStatus('대둔산 GPS 예제 준비 완료!');};
-    $('duration').onchange=()=>{$('total').textContent=clock(Number($('duration').value));$('record').textContent=`● ${$('duration').value}초 영상 자동 저장 (WebM)`;renderProgress();};
+    $('duration').onchange=()=>{$('total').textContent=clock(Number($('duration').value));$('record').textContent=`● ${$('duration').value}초 영상 자동 저장`;renderProgress();};
     $('timeline').oninput=()=>{if(!state.points.length)return;stopPlay();state.progress=Number($('timeline').value)/1000;renderProgress();};
     $('view').onchange=()=>{if($('view').value==='overview')fitAll(true);};
     $('preview').onchange=()=>renderProgress(true);
@@ -310,8 +310,8 @@
     $('record').onclick=()=>{
       if(state.recording||!state.viewReady||!state.points.length)return;
       if(typeof MediaRecorder==='undefined'){toast('이 브라우저에는 영상 저장 기능이 없어. Chrome을 사용해 줘.');return;}
-      const mime=['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'].find(x=>MediaRecorder.isTypeSupported(x));
-      if(!mime){toast('WebM 영상 녹화를 지원하지 않는 브라우저야. Chrome을 사용해 줘.');return;}
+      const mime=['video/mp4;codecs=avc1.42E01E','video/mp4','video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'].find(x=>MediaRecorder.isTypeSupported(x));
+      if(!mime){toast('이 브라우저는 MP4/WebM 영상 녹화를 지원하지 않아. Chrome을 사용해 줘.');return;}
       try{
         stopPlay();state.progress=0;state.lastFrame=0;renderProgress(true);fitAll(false);
         const c=document.createElement('canvas');c.width=1280;c.height=720;const ctx=c.getContext('2d',{alpha:false});
@@ -319,10 +319,10 @@
         state.mediaChunks=[];state.recorder=recorder;
         recorder.ondataavailable=e=>{if(e.data.size)state.mediaChunks.push(e.data)};
         recorder.onerror=e=>{console.warn(e);showStatus('영상 저장 중 오류가 발생했어.');finishRecording()};
-        recorder.onstop=()=>{stream.getTracks().forEach(t=>t.stop());const blob=new Blob(state.mediaChunks,{type:mime});if(blob.size<1000){showStatus('영상 저장에 실패했어. 지도 제공자 연결을 확인해 줘.');return;}const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='FPV-Replay-'+new Date().toISOString().slice(0,10)+'.webm';document.body.appendChild(a);a.click();setTimeout(()=>URL.revokeObjectURL(a.href),30000);a.remove();showStatus(`영상 파일 저장 완료! (${(blob.size/1024/1024).toFixed(1)}MB · WebM)`)};
+        recorder.onstop=()=>{stream.getTracks().forEach(t=>t.stop());const blob=new Blob(state.mediaChunks,{type:mime});if(blob.size<1000){showStatus('영상 저장에 실패했어. 지도 제공자 연결을 확인해 줘.');return;}const a=document.createElement('a');a.href=URL.createObjectURL(blob);const extension=mime.startsWith('video/mp4')?'mp4':'webm';a.download='FPV-Replay-'+new Date().toISOString().slice(0,10)+'.'+extension;document.body.appendChild(a);a.click();setTimeout(()=>URL.revokeObjectURL(a.href),30000);a.remove();showStatus(`영상 파일 저장 완료! (${(blob.size/1024/1024).toFixed(1)}MB · ${extension.toUpperCase()})`)};
         state.recording=true;$('record').disabled=true;recorder.start(250);
         const compose=()=>{if(!state.recording)return;compositeFrame(c,ctx);recLoop=requestAnimationFrame(compose)};compose();
-        startPlay();showStatus(`${$('duration').value}초 WebM 영상 녹화 중 · 브라우저 탭을 열어 둬.`);
+        startPlay();showStatus(`${$('duration').value}초 영상 녹화 중 · 브라우저 탭을 열어 둬.`);
       }catch(err){state.recording=false;$('record').disabled=false;toast('영상 저장 실패: '+err.message);showStatus('영상 저장 오류')}
     };
     window.addEventListener('keydown',e=>{if(e.target.matches('input,select'))return;if(e.code==='Space'){e.preventDefault();startPlay()}});
