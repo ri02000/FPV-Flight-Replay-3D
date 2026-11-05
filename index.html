@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="dark">
-<title>FPV Flight Replay 3D · V-World v0.5</title>
+<title>FPV Flight Replay 3D · V-World v0.5.1</title>
 <script>
 /* V-World's documented examples load its SDK synchronously while HTML is parsed.
    A key is kept only in sessionStorage for this tab while restarting the page. */
@@ -61,12 +61,12 @@ input[type=file]{display:none}.upload{width:100%;cursor:pointer}.info{margin-top
 <div id="vmap"></div>
 <div class="fallback" id="fallback"><div class="globe">🌏</div><h2>대둔산 3D 지형 연결 준비</h2><p>브이월드 공식 3D 지도 API를 연결하면 여기에 지형이 나타나.<br>기존처럼 저해상도 대체 지도를 보여주지는 않을게.</p></div>
 <aside class="panel">
- <div class="tag">FPV FLIGHT REPLAY 3D · v0.5</div>
+ <div class="tag">FPV FLIGHT REPLAY 3D · v0.5.1</div>
  <h1><span>브이월드</span> 3D 비행 재생</h1>
  <p>아바타 2 대둔산 비행 기록을 3D 지도에서 재생해. 연한 파랑은 앞으로 갈 길, 진한 파랑은 지나온 길.</p>
  <label for="key">브이월드 개발 API 키</label>
  <input id="key" type="password" placeholder="발급받은 키 입력 (코드에 저장되지 않음)" autocomplete="off" spellcheck="false">
- <div class="grid2" style="margin-top:9px"><button id="connect" class="accent">🌏 3D 지도 연결</button><button id="diagnose">연결 환경 확인</button></div><p style="font-size:11px;margin:8px 0"><a href="./vworld-diagnostics.html" style="color:#7ddaff">지도 SDK 진단 페이지 열기</a>　<button id="tileDiag" style="min-height:26px;padding:4px 9px">지도 영상·지형 상태</button></p>
+ <div class="grid2" style="margin-top:9px"><button id="connect" class="accent">🌏 3D 지도 연결</button><button id="diagnose">연결 환경 확인</button></div><p style="font-size:11px;margin:8px 0"><a href="./vworld-diagnostics.html" style="color:#7ddaff">지도 SDK 진단 페이지 열기</a>　<button id="tileDiag" style="min-height:26px;padding:4px 9px">지도 영상·지형 상태</button>　<button id="terrainDiag" style="min-height:26px;padding:4px 9px">3D 지형 정밀 진단</button></p>
  <div class="info" id="status" role="status" aria-live="polite">연결 환경 확인 중…</div>
  <div class="line"></div>
  <div class="grid2"><button id="demo">🚁 대둔산 예제</button><label class="upload" for="gpx">↑ 다른 GPX 선택</label></div>
@@ -221,6 +221,27 @@ function terrainInfo(){
   if(C?.EllipsoidTerrainProvider && t instanceof C.EllipsoidTerrainProvider)return '평면 지구본(산악 고저차 없음)';
   return '지형 제공자: '+(t.constructor?.name||'알 수 없음');
 }
+function terrainDiagnostics(){
+  if(!viewer)return '지도가 아직 연결되지 않았어.';
+  const C=sdk(),scene=viewer.scene,globe=scene?.globe;
+  const provider=viewer.terrainProvider||globe?.terrainProvider;
+  const cls=provider?.constructor?.name||'없음';
+  const ellipsoid=!!(C.EllipsoidTerrainProvider&&provider instanceof C.EllipsoidTerrainProvider);
+  let h='조회 불가',real='조회 불가';
+  if(points.length&&C.Cartographic?.fromDegrees){
+    const p=C.Cartographic.fromDegrees(points[0].lon,points[0].lat);
+    try{const v=globe?.getHeight?.(p);h=Number.isFinite(v)?v.toFixed(1)+'m':'미로딩'}catch(e){}
+    try{
+      const c=globe?.ellipsoid?.cartographicToCartesian?.(p);
+      if(c&&scene?.sampleHeightSupported){const v=scene.sampleHeight(p);real=Number.isFinite(v)?v.toFixed(1)+'m':'미로딩'}
+    }catch(e){}
+  }
+  return 'terrainProvider='+cls+' / 평면='+ellipsoid+' / ready='+(provider?.ready??'미확인')+
+    ' / globe.show='+(globe?.show??'없음')+' / 깊이검사='+(globe?.depthTestAgainstTerrain??'미확인')+
+    ' / 지면높이='+h+' / 화면높이='+real+
+    ' / 3D타일='+((scene?.primitives?.length)??'미확인')+
+    ' / 보정='+terrainGroundSource;
+}
 function imageryInfo(){
   if(!viewer)return '아직 지도 엔진이 없어.';
   const layers=viewer.imageryLayers?.length??viewer.scene?.imageryLayers?.length??0;
@@ -338,7 +359,7 @@ function resumeSdkBoot(){
   };
   check();
 }
-$('tileDiag').addEventListener('click',()=>tell(imageryInfo(),satelliteTileErrors?'warn':'ok'));$('connect').addEventListener('click',connect);$('diagnose').addEventListener('click',()=>{const e=environment();tell(e.msg,e.ok?'ok':'warn')});$('play').addEventListener('click',play);$('overview').addEventListener('click',()=>{pause();overview(true)});$('follow').addEventListener('click',()=>{cameraMode='follow';smoothedCamera=null;draw(true);$('state').textContent='추적 대기'});$('restart').addEventListener('click',()=>{pause();elapsed=0;draw(true);overview(true);$('state').textContent='처음으로'});$('demo').addEventListener('click',()=>installData(sampleRows.map(a=>({lat:a[0],lon:a[1],alt:a[2],t:a[3]})),'대둔산 · Avata 2'));
+$('terrainDiag').addEventListener('click',()=>tell(terrainDiagnostics(),'warn'));$('tileDiag').addEventListener('click',()=>tell(imageryInfo(),satelliteTileErrors?'warn':'ok'));$('connect').addEventListener('click',connect);$('diagnose').addEventListener('click',()=>{const e=environment();tell(e.msg,e.ok?'ok':'warn')});$('play').addEventListener('click',play);$('overview').addEventListener('click',()=>{pause();overview(true)});$('follow').addEventListener('click',()=>{cameraMode='follow';smoothedCamera=null;draw(true);$('state').textContent='추적 대기'});$('restart').addEventListener('click',()=>{pause();elapsed=0;draw(true);overview(true);$('state').textContent='처음으로'});$('demo').addEventListener('click',()=>installData(sampleRows.map(a=>({lat:a[0],lon:a[1],alt:a[2],t:a[3]})),'대둔산 · Avata 2'));
 $('heightScale').addEventListener('change',()=>{
   heightScale=Number($('heightScale').value)||1;
   updateAltitudeInfo();
