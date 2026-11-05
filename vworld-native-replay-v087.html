@@ -292,6 +292,8 @@ function applyShotFollowCamera(p){
   camera.setView({destination,orientation:{direction:cameraShot.direction,up:cameraShot.up}});
 }
 function startCameraShot(){
+  // Stop any ongoing overview fly-to so it cannot override a fixed user-selected shot.
+  try{viewer?.camera?.cancelFlight?.()}catch(e){}
   const mode=$('cameraShotMode').value;
   if(mode==='legacy'){
     cameraMode='follow';
