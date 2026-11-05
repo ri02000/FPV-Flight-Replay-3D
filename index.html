@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="dark">
-<title>FPV Flight Replay 3D · V-World v0.3</title>
+<title>FPV Flight Replay 3D · V-World v0.3.1</title>
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo",system-ui,sans-serif;color:#eef6ff;background:#06111f;--line:#29435c;--primary:#39b8ff}
 *{box-sizing:border-box} html,body{margin:0;width:100%;height:100%;overflow:hidden}
@@ -33,12 +33,12 @@ input[type=file]{display:none}.upload{width:100%;cursor:pointer}.info{margin-top
 <div id="vmap"></div>
 <div class="fallback" id="fallback"><div class="globe">🌏</div><h2>대둔산 3D 지형 연결 준비</h2><p>브이월드 공식 3D 지도 API를 연결하면 여기에 지형이 나타나.<br>기존처럼 저해상도 대체 지도를 보여주지는 않을게.</p></div>
 <aside class="panel">
- <div class="tag">FPV FLIGHT REPLAY 3D · v0.3</div>
+ <div class="tag">FPV FLIGHT REPLAY 3D · v0.3.1</div>
  <h1><span>브이월드</span> 3D 비행 재생</h1>
  <p>아바타 2 대둔산 비행 기록을 3D 지도에서 재생해. 연한 파랑은 앞으로 갈 길, 진한 파랑은 지나온 길.</p>
  <label for="key">브이월드 개발 API 키</label>
  <input id="key" type="password" placeholder="발급받은 키 입력 (코드에 저장되지 않음)" autocomplete="off" spellcheck="false">
- <div class="grid2" style="margin-top:9px"><button id="connect" class="accent">🌏 3D 지도 연결</button><button id="diagnose">연결 환경 확인</button></div>
+ <div class="grid2" style="margin-top:9px"><button id="connect" class="accent">🌏 3D 지도 연결</button><button id="diagnose">연결 환경 확인</button></div><p style="font-size:11px;margin:8px 0"><a href="./vworld-diagnostics.html" style="color:#7ddaff">지도 SDK 진단 페이지 열기</a></p>
  <div class="info" id="status" role="status" aria-live="polite">연결 환경 확인 중…</div>
  <div class="line"></div>
  <div class="grid2"><button id="demo">🚁 대둔산 예제</button><label class="upload" for="gpx">↑ 다른 GPX 선택</label></div>
@@ -85,7 +85,7 @@ function installData(arr,title){pause();points=normalize(arr);total=points.at(-1
 function fail(s){connectionState='failed';$('connect').disabled=false;tell(s,'warn');$('state').textContent='연결 실패'}
 function mapReady(){if(connected)return;const v=window.ws3d?.viewer;if(!v||!window.Cesium){fail('3D 지도는 초기화됐지만 Cesium 뷰어를 찾지 못했어. 개발자도구 오류 내용을 확인해야 해.');return}clearTimeout(loaderTimer);viewer=v;connected=true;connectionState='ready';$('connect').disabled=true;$('play').disabled=false;$('restart').disabled=false;$('overview').disabled=false;$('follow').disabled=false;$('fallback').style.display='none';makePath();tell('브이월드 3D 엔진이 연결됐어. 이제 대둔산 지형과 비행 경로를 확인해 봐!','ok');$('state').textContent='지도 연결됨'}
 function startMap(){if(!window.vw?.Map||!window.vw?.CameraPosition){fail('브이월드 지도를 만드는 함수가 SDK에 없어. SDK 로딩 오류일 수 있어.');return}try{vw.ws3dInitCallBack=mapReady;map=new vw.Map();map.setOption({mapId:'vmap',initPosition:new vw.CameraPosition(new vw.CoordZ(127.321,36.120,2600),new vw.Direction(0,-65,0)),logo:true,navigation:true});map.start();connectionState='initializing';$('state').textContent='지도 초기화';loaderTimer=setTimeout(()=>{if(!connected){if(window.ws3d?.viewer&&window.ws3d.viewer.scene){mapReady()}else fail('지도 초기화가 완료되지 않았어. 등록 URL과 실제 접속 URL 또는 브이월드 서버 응답을 확인해 줘.')}},17000)}catch(err){fail('브이월드 지도 초기화 오류: '+String(err.message||err))}}
-function connect(){if(connected)return;const e=environment();if(!e.ok){tell(e.msg,'warn');return}const key=$('key').value.trim();if(!/^[A-Za-z0-9-]{24,90}$/.test(key)){tell('발급받은 개발키를 입력해 줘. 키는 화면에 저장되지 않아.','warn');return}connectionState='loading';$('connect').disabled=true;tell('브이월드 3D 지도 SDK를 불러오는 중이야…');$('state').textContent='SDK 연결';const script=document.createElement('script');script.async=true;script.src='https://map.vworld.kr/js/webglMapInit.js.do?version=3.0&apiKey='+encodeURIComponent(key);script.onerror=()=>fail('브이월드 SDK 로딩이 실패했어. 서비스 URL 또는 인증키 권한, 네트워크 연결을 확인해 줘.');script.onload=()=>{let attempts=0;const check=()=>{if(window.vw?.Map){startMap();return}if(++attempts>48){fail('SDK 응답은 왔지만 3D 지도 함수가 만들어지지 않았어. 브이월드 인증 오류일 수 있어.');return}setTimeout(check,200)};check()};document.head.append(script)}
+function connect(){if(connected)return;const e=environment();if(!e.ok){tell(e.msg,'warn');return}const key=$('key').value.trim();if(!/^[A-Za-z0-9-]{24,90}$/.test(key)){tell('발급받은 개발키를 입력해 줘. 키는 화면에 저장되지 않아.','warn');return}connectionState='loading';$('connect').disabled=true;tell('등록된 서비스 URL을 포함해 브이월드 3D SDK를 불러오는 중이야…');$('state').textContent='SDK 연결';const script=document.createElement('script');script.async=true;script.src='https://map.vworld.kr/js/webglMapInit.js.do?version=3.0&apiKey='+encodeURIComponent(key)+'&domain='+encodeURIComponent(EXPECTED_ORIGIN+EXPECTED_PATH);script.onerror=()=>fail('브이월드 SDK 로딩이 실패했어. 서비스 URL 또는 인증키 권한, 네트워크 연결을 확인해 줘.');script.onload=()=>{let attempts=0;const check=()=>{if(window.vw?.Map){startMap();return}if(++attempts>48){fail('SDK 응답 후에도 vw.Map이 생성되지 않았어. 등록 URL 포함 방식으로도 실패했으니 진단 페이지에서 오류를 확인해야 해.');return}setTimeout(check,200)};check()};document.head.append(script)}
 $('connect').addEventListener('click',connect);$('diagnose').addEventListener('click',()=>{const e=environment();tell(e.msg,e.ok?'ok':'warn')});$('play').addEventListener('click',play);$('overview').addEventListener('click',()=>{pause();overview(true)});$('follow').addEventListener('click',()=>{cameraMode='follow';smoothedCamera=null;draw(true);$('state').textContent='추적 대기'});$('restart').addEventListener('click',()=>{pause();elapsed=0;draw(true);overview(true);$('state').textContent='처음으로'});$('demo').addEventListener('click',()=>installData(sampleRows.map(a=>({lat:a[0],lon:a[1],alt:a[2],t:a[3]})),'대둔산 · Avata 2'));
 $('duration').addEventListener('change',()=>{$('total').textContent=fmt(+$('duration').value);draw(true)});$('scrub').addEventListener('input',()=>{pause();elapsed=Number($('scrub').value)/1000*total;draw(true)});$('gpx').addEventListener('change',async ev=>{const f=ev.target.files?.[0];if(!f)return;try{installData(parseGPX(await f.text()),f.name);tell('GPX 파일을 읽었어. 3D 지도 연결 후 재생할 수 있어.','ok')}catch(e){tell('GPX 읽기 오류: '+e.message,'warn')}});
 window.addEventListener('unhandledrejection',e=>{if(connectionState==='loading'||connectionState==='initializing')tell('3D 지도 연결 중 오류가 발생했어. 인증키 등록 주소와 브이월드 서버 응답을 확인해야 해.','warn')});
