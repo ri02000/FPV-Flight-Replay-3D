@@ -112,8 +112,8 @@ function cart(p){return sdk().Cartesian3.fromDegrees(p.lon,p.lat,renderAltitude(
 function updateAltitudeInfo(){
   if(!points.length)return;
   const base=points[0].alt;
-  const low=Math.min(...points.map(p=>p.alt))-base;
-  const high=Math.max(...points.map(p=>p.alt))-base;
+  let low=Infinity,high=-Infinity;
+  for(const p of points){low=Math.min(low,p.alt-base);high=Math.max(high,p.alt-base)}
   $('altmeta').textContent='이륙 로그 '+base.toFixed(1)+'m · 지도 지면 '+groundAtTakeoff.toFixed(1)+'m ('+terrainGroundSource+') · 이륙점 대비 '+low.toFixed(0)+'~+'+high.toFixed(0)+'m · 표현 '+heightScale+'배';
 }
 async function groundHeightAtTakeoff(p){
