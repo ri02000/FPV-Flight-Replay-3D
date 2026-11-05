@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FPV Flight Replay 3D | 브이월드 연결 진단</title>
+<style>
+:root{font-family:-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',system-ui,sans-serif;background:#081525;color:#e7f3ff}*{box-sizing:border-box}body{margin:0}header{padding:18px 22px;background:#0e2942;border-bottom:1px solid #31526e}h1{font-size:20px;margin:0}header p{color:#a9c4dd;margin:7px 0 0;font-size:13px}main{display:grid;grid-template-columns:minmax(330px,410px) 1fr;gap:16px;min-height:calc(100vh - 83px);padding:16px}.panel{padding:20px;border:1px solid #395874;background:#10243a;border-radius:14px}label{display:block;margin-top:17px;margin-bottom:8px;font-size:13px;font-weight:700}input{width:100%;border:1px solid #47718e;border-radius:9px;background:#091b2e;color:white;padding:12px;font-size:14px}button{background:#1876b9;color:white;border:none;border-radius:9px;padding:11px 14px;cursor:pointer;font-weight:700;font-size:13px}button:disabled{opacity:.5}.row{display:flex;gap:8px;margin-top:10px}.row>*{flex:1}.secondary{background:#25415b}#log{white-space:pre-wrap;word-break:break-word;line-height:1.65;font-size:12px;padding:13px;background:#061728;border-radius:10px;border:1px solid #34516a;min-height:240px;color:#d6ecfa}.note{color:#9fb9d1;font-size:12px;line-height:1.65}.mapwrap{position:relative;border:1px solid #395874;border-radius:14px;overflow:hidden;min-height:580px;background:linear-gradient(120deg,#142c46,#07121e)}#vmap{position:absolute;inset:0}.placeholder{position:absolute;inset:0;display:grid;place-items:center;color:#8daecb;pointer-events:none;text-align:center}#placeholder.hidden{display:none}.status{color:#79d9ff;font-size:12px;margin:12px 0}a{color:#7ed5ff}@media(max-width:850px){main{display:block}.mapwrap{margin-top:12px;min-height:400px}}
+</style>
+</head>
+<body>
+<header><h1>🚁 FPV Flight Replay 3D · 지도 연결 진단</h1><p>공식 브이월드 WebGL 3D API만 독립적으로 실행해 보는 테스트. 비행 재생 코드는 포함하지 않았어.</p></header>
+<main>
+<section class="panel">
+ <strong>3D 지도 연결 시험</strong>
+ <div id="origin" class="status">접속 환경 확인 중…</div>
+ <label for="key">발급받은 브이월드 개발키</label>
+ <input type="password" id="key" autocomplete="off" spellcheck="false" placeholder="인증키는 저장되지 않아">
+ <div class="row"><button id="check">① 기본 방식 연결</button><button class="secondary" id="domain">② 도메인 지정 시험</button></div>
+ <p class="note">처음에는 ①을 눌러줘. 실패하면 ②를 눌러 비교하면 돼. ②는 브이월드 SDK 호출에 <code>domain</code> 매개변수를 덧붙여 시험하는 방식이고 공식 권장 설정이라는 뜻은 아니야.</p>
+ <div class="row"><button class="secondary" id="copy">진단 결과만 복사</button><button class="secondary" id="reset">다시 시작</button></div>
+ <label>진단 결과</label>
+ <div id="log" role="status" aria-live="polite"></div>
+ <p class="note">인증키는 진단 내용에 포함하지 않아. 오류 메시지를 복사해서 공유해도 키가 노출되지 않도록 마스킹해.</p>
+ <p class="note"><a href="./">← 우리 비행 재생 프로그램으로 돌아가기</a></p>
+</section>
+<div class="mapwrap"><div id="vmap"></div><div class="placeholder" id="placeholder">🌏<br>대둔산 3D 지도 시험 대기</div></div>
+</main>
+<script>
+'use strict';
+const $=id=>document.getElementById(id), ORIGIN='https://ri02000.github.io', PREFIX='/FPV-Flight-Replay-3D/';
+const secretPattern=/\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b/ig;
+let logRows=[], map=null,runId=0;
+function scrub(s){return String(s??'').replace(secretPattern,'[인증키 숨김]').replace(/(apiKey=)[^&\s"']+/ig,'$1[숨김]').replace(/(key=)[^&\s"']+/ig,'$1[숨김]').slice(0,260)}
+function note(s){let line=new Date().toLocaleTimeString('ko-KR')+'  '+scrub(s); logRows.push(line);$('log').textContent=logRows.join('\n');$('log').scrollTop=$('log').scrollHeight}
+function featureSummary(){return '환경: vw='+typeof window.vw+' / vw.Map='+typeof window.vw?.Map+' / vw.CameraPosition='+typeof window.vw?.CameraPosition+' / Cesium='+typeof window.Cesium+' / ws3d.viewer='+(!!window.ws3d?.viewer)}
+window.addEventListener('error',e=>{if(e.target&&e.target!==window&&e.target.tagName==='SCRIPT'){note('SCRIPT 리소스 오류 (브이월드 서버 또는 네트워크 응답 확인 필요)')}else if(e.message){note('자바스크립트 오류: '+e.message)}},true);
+window.addEventListener('unhandledrejection',e=>note('비동기 오류: '+(e.reason?.message||String(e.reason))));
+window.alert=(m)=>{note('브이월드 알림: '+m)};
+function showEnvironment(){let here=location.origin+location.pathname,ok=location.origin===ORIGIN&&location.pathname.startsWith(PREFIX);$('origin').textContent=ok?'✓ GitHub Pages 등록 주소에서 실행 중':'⚠ 접속 주소 확인: '+here;note('실행 주소: '+here);note('HTTPS: '+(location.protocol==='https:'?'예':'아니오'));note('WebGL: '+(function(){try{let c=document.createElement('canvas');return !!(c.getContext('webgl2')||c.getContext('webgl'))}catch(e){return false}})()?'지원':'사용 불가');note('API 등록 주소 일치 형식: '+(ok?'예':'아니오'))}
+function finish(text){note(text);$('check').disabled=false;$('domain').disabled=false}
+function initMap(id){if(id!==runId)return;note('SDK 함수 발견: 지도 초기화 시도');try{
+ const v=window.vw;if(!v?.Map||!v?.CameraPosition||!v?.CoordZ||!v?.Direction)throw new Error('지도 생성에 필요한 API 객체 일부가 없음');
+ v.ws3dInitCallBack=function(){if(id!==runId)return;note('✓ 브이월드 초기화 콜백 실행');note(featureSummary());$('placeholder').classList.add('hidden');finish('성공: 지도 생성 콜백 수신. 이제 실제 3D 지형이 보이는지 확인해 줘.')};
+ map=new v.Map();map.setOption({mapId:'vmap',initPosition:new v.CameraPosition(new v.CoordZ(127.32,36.12,3000),new v.Direction(0,-65,0)),logo:true,navigation:true});
+ // 공식 예제 방식
+ map.start();note('map.start() 호출 완료. 지형 준비 대기 중');
+ setTimeout(()=>{if(id!==runId)return;if(window.ws3d?.viewer?.scene){note('✓ ws3d.viewer.scene 접근 가능');$('placeholder').classList.add('hidden');finish('지도 객체 준비 확인. 실제 위성 지형 영상이 표시되는지 확인해 줘.')}else finish('SDK 지도 생성은 호출했으나 25초 동안 3D 뷰어 준비가 확인되지 않음. 위 오류 메시지를 확인해 줘.')},25000);
+ }catch(e){finish('지도 생성 중 오류: '+(e?.message||String(e)))} }
+function connect(mode){if(location.origin!==ORIGIN||!location.pathname.startsWith(PREFIX)){note('등록된 웹사이트 주소에서만 시험해 줘.');return}let key=$('key').value.trim();if(!/^[A-Za-z0-9-]{24,90}$/.test(key)){note('먼저 개발키를 입력해 줘.');return}
+ ++runId;let id=runId;logRows=[];$('log').textContent='';note('연결 방식: '+(mode==='domain'?'도메인 매개변수 포함':'공식 기본 방식'));
+ note('SDK 주소: https://map.vworld.kr/js/webglMapInit.js.do?version=3.0&apiKey=[숨김]'+(mode==='domain'?'&domain=ri02000.github.io':''));
+ $('check').disabled=true;$('domain').disabled=true;
+ const url='https://map.vworld.kr/js/webglMapInit.js.do?version=3.0&apiKey='+encodeURIComponent(key)+(mode==='domain'?'&domain='+encodeURIComponent(location.hostname):'');
+ const script=document.createElement('script');script.async=true;script.src=url;
+ let loaded=false;
+ script.onload=()=>{if(id!==runId)return;loaded=true;note('✓ SDK 파일 onload 이벤트 수신');note(featureSummary());let n=0;const poll=()=>{if(id!==runId)return;if(typeof window.vw?.Map==='function'){initMap(id);return}if(++n>=30){finish('SDK 응답은 받았지만 vw.Map 함수가 생성되지 않음. 이 상태는 인증키/등록 URL 오류, 서버가 보낸 비정상 스크립트, 또는 브라우저 스크립트 실행 오류 모두 가능해. 위에 브이월드 알림/자바스크립트 오류가 있는지 확인해 줘.');return}setTimeout(poll,300)};poll()};
+ script.onerror=()=>{if(id!==runId)return;finish('SDK 스크립트 로드 실패: 브이월드 서버 상태·연결·브라우저 차단 여부 확인 필요')};
+ document.head.appendChild(script);
+ setTimeout(()=>{if(id===runId&&!loaded){finish('20초 동안 SDK 파일 onload 이벤트가 없음. 서버 응답 또는 네트워크 차단 의심')}},20000)
+ }
+$('check').onclick=()=>connect('basic');$('domain').onclick=()=>connect('domain');
+$('copy').onclick=async()=>{const diagnostic=logRows.join('\n');try{await navigator.clipboard.writeText(diagnostic);note('진단 결과 복사 완료 (키 제외)')}catch(e){note('자동 복사 실패. 위 진단 결과를 직접 선택해서 복사해 줘.')}};
+$('reset').onclick=()=>location.reload();
+showEnvironment();
+</script>
+</body>
+</html>
