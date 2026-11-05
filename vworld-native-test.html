@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>브이월드 순정 3D 지도 실험 | FPV Flight Replay</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;height:100%;font-family:system-ui,-apple-system,sans-serif;background:#061526;color:#eef6ff}
+#vmap{position:absolute;inset:0;width:100%;height:100%;background:#0b1826}
+.panel{position:absolute;top:14px;left:14px;z-index:20;width:min(380px,calc(100vw - 28px));max-height:calc(100vh - 28px);overflow:auto;background:#08192be8;border:1px solid #2b5771;border-radius:14px;padding:18px;box-shadow:0 8px 30px #0007}
+h1{font-size:18px;margin:0 0 8px}p{font-size:13px;line-height:1.55;color:#bed4e5}
+input,button{font:inherit;border:1px solid #42738f;border-radius:8px;padding:10px;background:#102b43;color:white;width:100%}
+button{cursor:pointer;background:#176aab;margin-top:8px;font-weight:600}button:disabled{opacity:.5}
+pre{font:12px/1.55 ui-monospace,Menlo,monospace;white-space:pre-wrap;word-break:break-word;max-height:240px;overflow:auto;background:#061320;border:1px solid #214257;border-radius:8px;padding:10px}
+a{color:#7ddaff}.tag{font-size:11px;color:#8ad9ff;letter-spacing:.06em}
+</style>
+<script>
+(function(){
+  const key=sessionStorage.getItem('fpv-native-key');
+  if(!key)return;
+  if(!/^[A-Za-z0-9-]{24,90}$/.test(key)){sessionStorage.removeItem('fpv-native-key');return}
+  const url='https://map.vworld.kr/js/webglMapInit.js.do?version=3.0&apiKey='+encodeURIComponent(key);
+  // Only the running browser sees this key; it is not in the committed HTML.
+  document.write('<scr'+'ipt src="'+url.replace(/&/g,'&amp;')+'"><\/scr'+'ipt>');
+})();
+</script>
+</head>
+<body>
+<div id="vmap"></div>
+<div class="panel">
+  <div class="tag">FPV FLIGHT REPLAY · 순정 엔진 진단</div>
+  <h1>브이월드 공식 3D 지도 시험</h1>
+  <p>우리의 임시 DEM 메시를 전혀 사용하지 않아. 브이월드 2026년 공식 예제의 초기화 순서로 대둔산을 직접 띄우는 독립 시험이야. 기존 v0.7은 변경하지 않았어.</p>
+  <div id="keybox">
+    <input type="password" id="key" autocomplete="off" placeholder="기존 브이월드 API 키">
+    <button id="start">순정 3D 지도 열기</button>
+  </div>
+  <button id="inspect">지형 상태 다시 확인</button>
+  <pre id="status">준비 중…</pre>
+  <p><a href="./">기존 비행 재생 v0.7로 돌아가기</a></p>
+</div>
+<script>
+(function(){
+  const el=document.getElementById('status'),keybox=document.getElementById('keybox');
+  const hasKey=!!sessionStorage.getItem('fpv-native-key');
+  let map=null,ready=false;
+  function redact(s){return String(s||'').replace(/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/gi,'[키 숨김]').replace(/apiKey=[^&\\s]+/gi,'apiKey=[키 숨김]')}
+  function log(message){el.textContent=(el.textContent==='준비 중…'?'':el.textContent+'\n')+redact(message)}
+  window.addEventListener('error',event=>log('JS 오류: '+event.message));
+  window.addEventListener('unhandledrejection',event=>log('비동기 오류: '+(event.reason?.message||event.reason)));
+  document.getElementById('start').addEventListener('click',()=>{
+    const key=document.getElementById('key').value.trim();
+    if(!/^[A-Za-z0-9-]{24,90}$/.test(key)){log('API 키 형식을 확인해 줘.');return}
+    sessionStorage.setItem('fpv-native-key',key);
+    location.reload();
+  });
+  function inspect(){
+    const v=window.ws3d?.viewer,C=window.Cesium;
+    if(!v){log('viewer 없음 / vw.Map='+!!window.vw?.Map);return}
+    const t=v.terrainProvider||v.scene?.globe?.terrainProvider;
+    const flat=!!(C?.EllipsoidTerrainProvider&&t instanceof C.EllipsoidTerrainProvider);
+    const count=v.imageryLayers?.length??'없음';
+    log('viewer 생성='+!!v+' / terrainProvider='+(t?.constructor?.name||'없음')+' / 평면 지구본='+flat+' / 위성영상 레이어='+count);
+    try{
+      const h=v.scene?.globe?.getHeight(C.Cartographic.fromDegrees(127.321,36.120));
+      log('대둔산 근처 지형 높이='+(Number.isFinite(h)?h.toFixed(1)+'m':'아직 조회 안 됨'));
+    }catch(err){log('지면 높이 조회 오류: '+err.message)}
+  }
+  document.getElementById('inspect').addEventListener('click',inspect);
+  if(!hasKey){el.textContent='키를 입력하면 공식 3D SDK만 불러와. 키는 브라우저 탭의 임시 저장소에만 보관해.';return}
+  keybox.style.display='none';
+  el.textContent='공식 브이월드 3D SDK 초기화 중…';
+  const C=window.Cesium;
+  if(!window.vw?.Map){log('SDK의 vw.Map을 찾을 수 없어. 인증키/도메인/스크립트 응답을 확인해야 해.');return}
+  const center=new vw.CameraPosition(new vw.CoordZ(127.321,36.120,3500),new vw.Direction(0,-65,0));
+  vw.ws3dInitCallBack=()=>{ready=true;log('공식 3D 지도 초기화 콜백 완료');inspect()};
+  try{
+    map=new vw.Map();
+    map.setOption({mapId:'vmap',initPosition:center,logo:true,navigation:true});
+    if(typeof map.setMapId==='function')map.setMapId('vmap');
+    if(typeof map.setInitPosition==='function')map.setInitPosition(center);
+    if(typeof map.setLogoVisible==='function')map.setLogoVisible(true);
+    if(typeof map.setNavigationZoomVisible==='function')map.setNavigationZoomVisible(false);
+    log('공식 예제 방식으로 map.start() 실행');
+    map.start();
+    log('map.start() 정상 반환');
+  }catch(err){
+    log('map.start() 오류: '+(err?.stack||err?.message||err));
+    inspect();
+  }
+  setTimeout(()=>{if(!ready)log('10초 경과: 초기화 콜백이 아직 실행되지 않았어.');inspect()},10000);
+  setTimeout(inspect,22000);
+})();
+</script>
+</body>
+</html>
