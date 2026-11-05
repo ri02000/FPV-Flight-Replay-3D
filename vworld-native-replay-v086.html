@@ -756,7 +756,11 @@ $('forgetKey').addEventListener('click',forgetSavedKey);
 $('rememberKey').addEventListener('change',()=>{
   if(!$('rememberKey').checked){
     try{localStorage.removeItem('fpv-vworld-saved-key')}catch(e){}
-    tell('API 키 자동 저장을 해제했어. 다음 접속부터는 키 입력이 필요해.','ok');
+    try{
+      sessionStorage.removeItem('fpv-vworld-temp-key');
+      sessionStorage.removeItem('fpv-native-key');
+    }catch(e){}
+    tell('API 키 자동 저장을 해제했어. 다음에 페이지를 열 때 다시 입력해야 해.','ok');
   }
 });
 const savedApiKey=getSavedKey();
