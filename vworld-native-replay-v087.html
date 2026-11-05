@@ -260,22 +260,18 @@ if(playing&&cameraMode==='follow'){
   const s=smoothedCamera;
   viewer.camera.setView({destination:sdk().Cartesian3.fromDegrees(s.lon,s.lat-.0037,renderAltitude(s)+950),orientation:{heading:0,pitch:sdk().Math.toRadians(-61),roll:0}});
 }else if(playing&&cameraMode==='shot-follow'&&cameraShot){
-  // Preserve the user-selected camera direction, pitch and framing, while moving
-  // the camera with the drone in earth-fixed coordinates.
-  const C=sdk(),camera=viewer.camera;
   const speed=.15;
   if(!smoothedCamera)smoothedCamera={lat:p.lat,lon:p.lon,alt:p.alt};
   smoothedCamera.lat+=(p.lat-smoothedCamera.lat)*speed;
   smoothedCamera.lon+=(p.lon-smoothedCamera.lon)*speed;
   smoothedCamera.alt+=(p.alt-smoothedCamera.alt)*speed;
-  const displacement=C.Cartesian3.subtract(cart(smoothedCamera),cameraShot.target,new C.Cartesian3());
-  const destination=C.Cartesian3.add(cameraShot.position,displacement,new C.Cartesian3());
-  camera.setView({destination,orientation:{direction:cameraShot.direction,up:cameraShot.up}});
+  applyShotFollowCamera(smoothedCamera);
 }
 viewer.scene.requestRender?.()}
 function captureCameraShot(){
   if(!connected||!viewer||!points.length)return null;
   const C=sdk(),camera=viewer.camera;
+  try{camera.cancelFlight?.()}catch(e){}
   // World-coordinate camera pose is copied, not referenced, so SDK camera updates
   // cannot mutate the stored shot. Use the current replay point as translation origin.
   if(!camera.positionWC||!camera.directionWC||!camera.upWC)return null;
@@ -285,6 +281,15 @@ function captureCameraShot(){
     up:C.Cartesian3.clone(camera.upWC),
     target:cart(sample(elapsed))
   };
+}
+function applyShotFollowCamera(p){
+  if(!cameraShot)return;
+  // Translate the chosen world-space camera by the drone displacement.
+  // This preserves the user's chosen tilt, direction and distance.
+  const C=sdk(),camera=viewer.camera;
+  const displacement=C.Cartesian3.subtract(cart(p),cameraShot.target,new C.Cartesian3());
+  const destination=C.Cartesian3.add(cameraShot.position,displacement,new C.Cartesian3());
+  camera.setView({destination,orientation:{direction:cameraShot.direction,up:cameraShot.up}});
 }
 function startCameraShot(){
   const mode=$('cameraShotMode').value;
@@ -488,6 +493,10 @@ function startVideoRecording(){
   elapsed=0;
   draw(true);
   startCameraShot();
+  if(cameraMode==='shot-follow'){
+    smoothedCamera={...points[0]};
+    applyShotFollowCamera(points[0]);
+  }
   const scene=viewer.scene;
   scene.requestRender?.();
   const source=scene.canvas;
@@ -611,7 +620,9 @@ function play(){
   if(playing){pause();return}
   cancelOutro();
   if(elapsed>=total){elapsed=0;draw(true)}
-  const mode=startCameraShot();
+  const mode=recordingSession?.phase==='recording'
+    ?(cameraMode==='shot-fixed'?'현재 구도 고정':cameraMode==='shot-follow'?'선택 각도 따라가기':'기존 위쪽 추적')
+    :startCameraShot();
   playing=true;
   lastFlightTick=0;
   startTime=performance.now()-elapsed/total*Number($('duration').value)*1000;
