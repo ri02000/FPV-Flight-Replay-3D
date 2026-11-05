@@ -95,7 +95,7 @@ const EXPECTED_ORIGIN='https://ri02000.github.io';
 const EXPECTED_PATH='/FPV-Flight-Replay-3D/';
 let points=[],times=[],total=0,trackDistance=[],fullDistance=0,elapsed=0,playing=false,startTime=0,raf=0,viewer=null,map=null,connected=false,entities=[],pastLine=[],cameraMode='follow',smoothedCamera=null,lastTrace=-1,loaderTimer=null,connectionState='idle';
 let groundAtTakeoff=0,terrainGroundSource='측정 전',terrainCalibrationSeq=0,heightScale=1,terrainBackend='',terrainTileErrors=0,terrainBusy=false;
-let terrainMeshPrimitives=[],terrainMeshHeightAtTakeoff=null,meshImageryKey='',terrainMeshLoadSeq=0;
+let terrainMeshPrimitives=[],terrainMeshHeightAtTakeoff=null,meshImageryKey='',terrainMeshLoadSeq=0,terrainMeshRenderFailures=0;
 const sdk=()=>window.Cesium;
 const tell=(s,cls='')=>{$('status').textContent=s;$('status').className='info '+cls};
 const fmt=t=>{t=Math.max(0,Math.floor(t));return String(Math.floor(t/60)).padStart(2,'0')+':'+String(t%60).padStart(2,'0')};
@@ -268,10 +268,10 @@ function tileBounds(x,y,z){
   const lat=y=>Math.atan(Math.sinh(Math.PI*(1-2*y/n)))*180/Math.PI;
   return {west:lon(x),east:lon(x+1),north:lat(y),south:lat(y+1)};
 }
-function terrainTilePlan(){
+function terrainTilePlan(maxZoom=14){
   const lo=Math.min(...points.map(p=>p.lon)),hi=Math.max(...points.map(p=>p.lon));
   const bottom=Math.min(...points.map(p=>p.lat)),top=Math.max(...points.map(p=>p.lat));
-  for(const z of [14,13,12,11,10]){
+  for(const z of [maxZoom,13,12,11,10].filter((v,i,a)=>v<=maxZoom&&a.indexOf(v)===i)){
     const x0=terrainTileX(lo,z)-1,x1=terrainTileX(hi,z)+1;
     const y0=terrainTileY(top,z)-1,y1=terrainTileY(bottom,z)+1;
     if((x1-x0+1)*(y1-y0+1)<=16){
@@ -386,9 +386,15 @@ async function loadRealTerrain(){
   const seq=++terrainMeshLoadSeq;
   let success=0,failures=0;
   try{
-    const tiles=terrainTilePlan();
+    let tiles=null,h=null;
+    for(const zoom of [14,13,12]){
+      try{
+        tiles=terrainTilePlan(zoom);
+        h=await takeoffHeightFromDEM(tiles[0].z);
+        break;
+      }catch(err){if(zoom===12)throw err;}
+    }
     tell('원래 위성지도는 유지한 채 대둔산 3D 지형 조각 '+tiles.length+'개를 만들고 있어…','warn');
-    const h=await takeoffHeightFromDEM(tiles[0].z);
     if(!Number.isFinite(h)||h<50||h>3500)throw Error('이륙 지점 DEM 고도 검증 실패: '+String(h));
     for(const tile of tiles){
       if(seq!==terrainMeshLoadSeq)return;
@@ -488,6 +494,12 @@ function mapReady(recovered=false){
   if(!usableViewer()){fail('지도 초기화 후 Cesium 뷰어가 완성되지 않았어.');return}
   clearTimeout(loaderTimer);
   viewer=window.ws3d.viewer;connected=true;connectionState='ready';
+  viewer.scene.renderError?.addEventListener((scene,error)=>{
+    if(!terrainMeshPrimitives.length||terrainMeshRenderFailures++>1)return;
+    clearTerrainMesh(false);
+    tell('3D 지형 메시 렌더링 오류가 발생해 자동으로 제거했어. 원래 위성지도를 유지할게. '+safeError(error?.message||error).slice(0,160),'warn');
+    setTimeout(()=>{try{viewer?.cesiumWidget&&(viewer.cesiumWidget.useDefaultRenderLoop=true)}catch(e){}},50);
+  });
   try{
     makePath();
     const imageryMessage=ensureSatelliteImagery(recovered);
