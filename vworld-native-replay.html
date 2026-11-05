@@ -53,10 +53,10 @@ input[type=file]{display:none}.upload{width:100%;cursor:pointer}.info{margin-top
 <aside class="panel">
  <div class="tag">FPV FLIGHT REPLAY 3D · v0.8 순정 3D 시험판</div>
  <h1><span>브이월드</span> 3D 비행 재생</h1>
- <p>아바타 2 대둔산 비행 기록을 3D 지도에서 재생해. 연한 파랑은 앞으로 갈 길, 진한 파랑은 지나온 길.</p>
+ <p>성공한 브이월드 순정 3D 지도 위에서 아바타 2의 비행 경로를 재생하는 시험판이야. 기존 v0.7은 그대로 보존했어.</p>
  <label for="key">브이월드 개발 API 키</label>
  <input id="key" type="password" placeholder="발급받은 키 입력 (코드에 저장되지 않음)" autocomplete="off" spellcheck="false">
- <div class="grid2" style="margin-top:9px"><button id="connect" class="accent">🌏 3D 지도 연결</button><button id="diagnose">연결 환경 확인</button></div><p style="font-size:11px;margin:8px 0"><a href="./vworld-diagnostics.html" style="color:#7ddaff">지도 SDK 진단 페이지 열기</a>　<button id="tileDiag" style="min-height:26px;padding:4px 9px">지도 영상·지형 상태</button>　<button id="terrainDiag" style="min-height:26px;padding:4px 9px">3D 지형 정밀 진단</button></p>
+ <div class="grid2" style="margin-top:9px"><button id="connect" class="accent">🌏 3D 지도 연결</button><button id="diagnose">연결 환경 확인</button></div><p style="font-size:11px;margin:8px 0"><a href="./" style="color:#7ddaff">기존 v0.7로 돌아가기</a>　<button id="tileDiag" style="min-height:26px;padding:4px 9px">지도 영상·지형 상태</button>　<button id="terrainDiag" style="min-height:26px;padding:4px 9px">3D 지형 정밀 진단</button></p>
  <div class="info" id="status" role="status" aria-live="polite">연결 환경 확인 중…</div>
  <p style="margin:6px 0 0">이 페이지는 브이월드 순정 3D 지형을 사용해. 임시 DEM 지형을 덧씌우지 않아.</p>
  <div class="line"></div>
@@ -179,24 +179,11 @@ function dropTempKey(){sessionStorage.removeItem('fpv-vworld-temp-key');sessionS
 function fail(s){
   clearTimeout(loaderTimer);
   connectionState='failed';
-  if(window.__vworldBoot?.active && sessionStorage.getItem('fpv-vworld-auto')==='1' && !s.includes('지도 초기화 오류')){
-    const step=Number(sessionStorage.getItem('fpv-vworld-mode')||0);
-    const msg=s+(window.__vworldBoot.warning?' / 응답: '+window.__vworldBoot.warning:'')+(window.__vworldBoot.error?' / JS: '+window.__vworldBoot.error:'');
-    if(step<2){
-      sessionStorage.setItem('fpv-vworld-mode',String(step+1));
-      sessionStorage.setItem('fpv-vworld-last-error',msg);
-      tell('지도 SDK 인증 방식 '+(step+1)+'/3 실패. 다른 방법으로 자동 재시도하는 중이야…','warn');
-      setTimeout(()=>location.reload(),350);
-      return;
-    }
-    dropTempKey();
-    s='브이월드 3D SDK 연결 실패(3가지 방식 시험). '+msg+' / 인증키를 새로 발급받기보다 브이월드 SDK 응답 또는 API 사용 권한을 확인해야 해.';
-    $('key').value='';
-  }
   $('connect').disabled=false;
-  tell(s,'warn');$('state').textContent='연결 실패';
+  tell(s,'warn');
+  $('state').textContent='연결 실패';
 }
-// 브이월드가 지도 본체를 만든 뒤 로고/내비게이션 초기화에서 예외를 내는 경우도 있어.
+// 순정 엔진에 오류가 나면 임시 평면 지도로 자동 대체하지 않는다.
 function safeError(value){
   return String(value).replace(/(apiKey=)[^&\\s)]+/gi,'$1[숨김]').replace(/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/gi,'[숨김]');
 }
@@ -325,7 +312,7 @@ function startMap(){
 function connect(){
   if(connected)return;
   const e=environment();if(!e.ok){tell(e.msg,'warn');return}
-  const key=$('key').value.trim();
+  const key=$('key').value.trim()||sessionStorage.getItem('fpv-native-key')||'';
   if(!/^[A-Za-z0-9-]{24,90}$/.test(key)){tell('발급받은 개발키를 입력해 줘.','warn');return}
   try{
     sessionStorage.setItem('fpv-vworld-temp-key',key);
@@ -341,8 +328,7 @@ function resumeSdkBoot(){
   if(!window.__vworldBoot?.active)return;
   $('connect').disabled=true;
   connectionState='loading';
-  const mode=window.__vworldBoot.mode;
-  $('state').textContent='SDK 연결 ('+mode+')';
+  $('state').textContent='순정 SDK 연결';
   tell('브이월드 순정 3D SDK를 연결하고 있어…');
   let attempts=0;
   const check=()=>{
