@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="dark">
-<title>FPV Flight Replay 3D · V-World v0.5.1</title>
+<title>FPV Flight Replay 3D · V-World v0.6</title>
 <script>
 /* V-World's documented examples load its SDK synchronously while HTML is parsed.
    A key is kept only in sessionStorage for this tab while restarting the page. */
@@ -61,13 +61,15 @@ input[type=file]{display:none}.upload{width:100%;cursor:pointer}.info{margin-top
 <div id="vmap"></div>
 <div class="fallback" id="fallback"><div class="globe">🌏</div><h2>대둔산 3D 지형 연결 준비</h2><p>브이월드 공식 3D 지도 API를 연결하면 여기에 지형이 나타나.<br>기존처럼 저해상도 대체 지도를 보여주지는 않을게.</p></div>
 <aside class="panel">
- <div class="tag">FPV FLIGHT REPLAY 3D · v0.5.1</div>
+ <div class="tag">FPV FLIGHT REPLAY 3D · v0.6</div>
  <h1><span>브이월드</span> 3D 비행 재생</h1>
  <p>아바타 2 대둔산 비행 기록을 3D 지도에서 재생해. 연한 파랑은 앞으로 갈 길, 진한 파랑은 지나온 길.</p>
  <label for="key">브이월드 개발 API 키</label>
  <input id="key" type="password" placeholder="발급받은 키 입력 (코드에 저장되지 않음)" autocomplete="off" spellcheck="false">
  <div class="grid2" style="margin-top:9px"><button id="connect" class="accent">🌏 3D 지도 연결</button><button id="diagnose">연결 환경 확인</button></div><p style="font-size:11px;margin:8px 0"><a href="./vworld-diagnostics.html" style="color:#7ddaff">지도 SDK 진단 페이지 열기</a>　<button id="tileDiag" style="min-height:26px;padding:4px 9px">지도 영상·지형 상태</button>　<button id="terrainDiag" style="min-height:26px;padding:4px 9px">3D 지형 정밀 진단</button></p>
  <div class="info" id="status" role="status" aria-live="polite">연결 환경 확인 중…</div>
+ <button id="realTerrain" class="accent" disabled style="width:100%;margin-top:9px">🏔️ 실제 3D 산악 지형 불러오기 (실험)</button>
+ <p style="margin:6px 0 0">브이월드 위성사진 위에 외부 DEM 고도 데이터를 적용해. 브이월드 공식 입체모형과 정밀도는 다를 수 있어.</p>
  <div class="line"></div>
  <div class="grid2"><button id="demo">🚁 대둔산 예제</button><label class="upload" for="gpx">↑ 다른 GPX 선택</label></div>
  <input type="file" id="gpx" accept=".gpx,application/gpx+xml,application/xml,text/xml">
@@ -92,7 +94,7 @@ const sampleRows=JSON.parse($('demo-data').textContent);
 const EXPECTED_ORIGIN='https://ri02000.github.io';
 const EXPECTED_PATH='/FPV-Flight-Replay-3D/';
 let points=[],times=[],total=0,trackDistance=[],fullDistance=0,elapsed=0,playing=false,startTime=0,raf=0,viewer=null,map=null,connected=false,entities=[],pastLine=[],cameraMode='follow',smoothedCamera=null,lastTrace=-1,loaderTimer=null,connectionState='idle';
-let groundAtTakeoff=0,terrainGroundSource='측정 전',terrainCalibrationSeq=0,heightScale=1;
+let groundAtTakeoff=0,terrainGroundSource='측정 전',terrainCalibrationSeq=0,heightScale=1,terrainBackend='',terrainTileErrors=0,terrainBusy=false;
 const sdk=()=>window.Cesium;
 const tell=(s,cls='')=>{$('status').textContent=s;$('status').className='info '+cls};
 const fmt=t=>{t=Math.max(0,Math.floor(t));return String(Math.floor(t/60)).padStart(2,'0')+':'+String(t%60).padStart(2,'0')};
@@ -169,7 +171,7 @@ async function startAltitudeCalibration(){
   if(result.source.includes('평면')||result.source.includes('실패')||result.source.includes('오류')){
     tell('비행 고도는 이륙점에 맞췄지만, '+result.source+'이야. 위성사진과 별도로 실제 3D 산악 지형 데이터가 필요한 상태야.','warn');
   }else{
-    tell('이륙 지점의 지면 높이 '+result.height.toFixed(1)+'m에 GPS 경로를 맞췄어. 상승·하강 원본 데이터는 보존했어.','ok');
+    tell((terrainBackend?terrainBackend+' 지형 연결. ':'')+'이륙 지점 지면 '+result.height.toFixed(1)+'m에 경로를 맞췄어. GPS 상승·하강은 보존했어.','ok');
   }
 }
 function makePath(){if(!connected||!points.length)return;const C=sdk();entities.forEach(e=>viewer.entities.remove(e));entities=[];const c=points.map(cart);pastLine=[c[0],c[0]];const future=viewer.entities.add({name:'앞으로 갈 경로',polyline:{positions:c,width:3,material:C.Color.fromCssColorString('#a3d8ff').withAlpha(.50),arcType:C.ArcType.NONE}});const past=viewer.entities.add({name:'지나온 경로',polyline:{positions:new C.CallbackProperty(()=>pastLine,false),width:5,material:C.Color.fromCssColorString('#1688ff'),arcType:C.ArcType.NONE}});const symbol=document.createElement('canvas');symbol.width=64;symbol.height=64;const pen=symbol.getContext('2d');pen.fillStyle='#052038';pen.beginPath();pen.moveTo(32,2);pen.lineTo(53,60);pen.lineTo(32,45);pen.lineTo(11,60);pen.closePath();pen.fill();pen.fillStyle='#78edff';pen.beginPath();pen.moveTo(32,7);pen.lineTo(45,49);pen.lineTo(32,37);pen.lineTo(19,49);pen.closePath();pen.fill();const drone=viewer.entities.add({name:'드론',position:c[0],billboard:{image:symbol.toDataURL(),width:41,height:41,disableDepthTestDistance:Number.POSITIVE_INFINITY,verticalOrigin:C.VerticalOrigin.CENTER}});entities=[future,past,drone];lastTrace=-1;draw(true);overview(false)}
@@ -221,6 +223,132 @@ function terrainInfo(){
   if(C?.EllipsoidTerrainProvider && t instanceof C.EllipsoidTerrainProvider)return '평면 지구본(산악 고저차 없음)';
   return '지형 제공자: '+(t.constructor?.name||'알 수 없음');
 }
+// 실제 DEM 지형은 브이월드 위성사진과 별개다. 기존 경로/이미지 레이어는 유지한다.
+function deadline(promise,ms,label){
+  return new Promise((resolve,reject)=>{
+    const id=setTimeout(()=>reject(Error(label+' 시간 초과')),ms);
+    Promise.resolve(promise).then(v=>{clearTimeout(id);resolve(v)},e=>{clearTimeout(id);reject(e)});
+  });
+}
+async function verifyTerrain(provider,label){
+  const C=sdk();
+  if(!C.sampleTerrain||!C.Cartographic?.fromDegrees)throw Error('Cesium 지형 높이 조회 API가 없어');
+  const p=points[0];
+  const sample=await deadline(C.sampleTerrain(provider,11,[C.Cartographic.fromDegrees(p.lon,p.lat)]),13000,label+' 고도 조회');
+  const h=sample?.[0]?.height;
+  if(!Number.isFinite(h)||h<50||h>3500)throw Error(label+' 지면 고도 검증 실패: '+String(h));
+  return h;
+}
+function terrariumURL(z,x,y){return 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/'+z+'/'+x+'/'+y+'.png'}
+async function terrariumImage(z,x,y){
+  const response=await deadline(fetch(terrariumURL(z,x,y),{mode:'cors'}),10000,'고도 타일 요청');
+  if(!response.ok)throw Error('고도 타일 HTTP '+response.status);
+  const blob=await response.blob();
+  const bitmap=await createImageBitmap(blob);
+  try{
+    const canvas=document.createElement('canvas');
+    canvas.width=256;canvas.height=256;
+    const context=canvas.getContext('2d',{willReadFrequently:true});
+    if(!context)throw Error('고도 타일 디코더 없음');
+    context.drawImage(bitmap,0,0,256,256);
+    return context.getImageData(0,0,256,256).data;
+  }finally{bitmap.close?.()}
+}
+function mapzenProvider(){
+  const C=sdk();
+  if(!C.CustomHeightmapTerrainProvider||!C.WebMercatorTilingScheme)throw Error('브이월드 Cesium에서 사용자 지정 지형 제공자를 지원하지 않아');
+  const cache=new Map();
+  const provider=new C.CustomHeightmapTerrainProvider({
+    width:65,height:65,
+    tilingScheme:new C.WebMercatorTilingScheme(),
+    credit:'Elevation data: Mapzen / AWS Open Data',
+    callback:(x,y,z)=>{
+      if(z>14)return undefined;
+      const key=z+'/'+x+'/'+y;
+      if(!cache.has(key)){
+        const work=terrariumImage(z,x,y).then(pixels=>{
+          const out=new Float32Array(65*65);
+          for(let row=0;row<65;row++){
+            const sy=Math.min(255,Math.round(row*255/64));
+            for(let col=0;col<65;col++){
+              const sx=Math.min(255,Math.round(col*255/64));
+              const n=(sy*256+sx)*4;
+              out[row*65+col]=pixels[n]*256+pixels[n+1]+pixels[n+2]/256-32768;
+            }
+          }
+          return out;
+        }).catch(err=>{
+          cache.delete(key);
+          terrainTileErrors++;
+          if(terrainTileErrors<=2)tell('외부 지형 타일 오류: '+safeError(err.message||err).slice(0,150),'warn');
+          throw err;
+        });
+        cache.set(key,work);
+        if(cache.size>90)cache.delete(cache.keys().next().value);
+      }
+      return cache.get(key);
+    }
+  });
+  // Mapzen Terrarium의 공개 타일은 최대 줌 15. 과도한 고도 타일 요청은 막는다.
+  provider.getTileDataAvailable=(x,y,z)=>z<=14;
+  return provider;
+}
+async function loadRealTerrain(){
+  if(!connected||terrainBusy)return;
+  const C=sdk();
+  const button=$('realTerrain');
+  const oldProvider=viewer.terrainProvider;
+  terrainBusy=true;button.disabled=true;pause();
+  let chosen=null,backend='',height=null;
+  const errors=[];
+  try{
+    tell('실제 산악 지형 연결 시도: ArcGIS 고도 데이터 확인 중…','warn');
+    if(C.ArcGISTiledElevationTerrainProvider?.fromUrl){
+      try{
+        const url='https://elevation3d.arcgis.com/arcgis/rest/services/WorldElevation3D/Terrain3D/ImageServer';
+        const p=await deadline(C.ArcGISTiledElevationTerrainProvider.fromUrl(url),10000,'ArcGIS 서비스');
+        height=await verifyTerrain(p,'ArcGIS');
+        chosen=p;backend='ArcGIS World Elevation';
+      }catch(err){errors.push('ArcGIS: '+safeError(err.message||err).slice(0,120))}
+    }else errors.push('ArcGIS 지형 API 미지원');
+    if(!chosen){
+      tell('ArcGIS 지형 연결이 안 되어 Mapzen 공개 고도 타일을 시험하고 있어…','warn');
+      try{
+        // 첫 타일을 읽어 CORS와 이미지 디코딩까지 실제로 검증한 뒤에만 지도에 적용한다.
+        const p=points[0],z=11,lat=p.lat*Math.PI/180;
+        const x=Math.floor((p.lon+180)/360*(2**z));
+        const y=Math.floor((1-Math.asinh(Math.tan(lat))/Math.PI)/2*(2**z));
+        const pixels=await terrariumImage(z,x,y);
+        const center=((128*256)+128)*4;
+        const probe=pixels[center]*256+pixels[center+1]+pixels[center+2]/256-32768;
+        if(!Number.isFinite(probe)||probe<50||probe>3500)throw Error('DEM 이미지 높이 값 오류 '+probe);
+        const candidate=mapzenProvider();
+        height=await verifyTerrain(candidate,'Mapzen');
+        chosen=candidate;backend='Mapzen DEM';
+      }catch(err){errors.push('Mapzen: '+safeError(err.message||err).slice(0,140))}
+    }
+    if(!chosen){
+      tell('입체 지형 연결 실패. 기존 지도와 비행 재생은 유지했어. '+errors.join(' / '),'warn');
+      return;
+    }
+    viewer.terrainProvider=chosen;
+    if(viewer.terrainProvider!==chosen)viewer.scene.globe.terrainProvider=chosen;
+    terrainBackend=backend;
+    viewer.scene.globe.depthTestAgainstTerrain=false;
+    viewer.scene.requestRender?.();
+    tell(backend+' 지형을 적용했어. 이륙 지면 높이 '+height.toFixed(1)+'m 검증 완료. 지형 타일을 불러오는 중…','ok');
+    await startAltitudeCalibration();
+    if(terrainBackend===backend){
+      $('realTerrain').textContent='🏔️ 3D 산악 지형 적용됨: '+backend;
+    }
+  }catch(err){
+    try{viewer.terrainProvider=oldProvider}catch(e){}
+    terrainBackend='';
+    tell('입체 지형 적용 오류: '+safeError(err.message||err).slice(0,250)+' / 기존 지도 복구','warn');
+  }finally{
+    terrainBusy=false;button.disabled=false;
+  }
+}
 function terrainDiagnostics(){
   if(!viewer)return '지도가 아직 연결되지 않았어.';
   const C=sdk(),scene=viewer.scene,globe=scene?.globe;
@@ -240,7 +368,7 @@ function terrainDiagnostics(){
     ' / globe.show='+(globe?.show??'없음')+' / 깊이검사='+(globe?.depthTestAgainstTerrain??'미확인')+
     ' / 지면높이='+h+' / 화면높이='+real+
     ' / 3D타일='+((scene?.primitives?.length)??'미확인')+
-    ' / 보정='+terrainGroundSource;
+    ' / 보정='+terrainGroundSource+' / 외부지형='+((terrainBackend)||'없음')+' / 지형타일 오류='+terrainTileErrors;
 }
 function imageryInfo(){
   if(!viewer)return '아직 지도 엔진이 없어.';
@@ -288,7 +416,7 @@ function mapReady(recovered=false){
     makePath();
     const imageryMessage=ensureSatelliteImagery(recovered);
     dropTempKey();$('key').value='';
-    $('connect').disabled=true;$('play').disabled=false;$('restart').disabled=false;$('overview').disabled=false;$('follow').disabled=false;
+    $('connect').disabled=true;$('realTerrain').disabled=false;$('play').disabled=false;$('restart').disabled=false;$('overview').disabled=false;$('follow').disabled=false;
     $('fallback').style.display='none';
     tell((recovered?'지도 본체와 비행 경로가 연결됐어. ':'브이월드 3D 지도와 비행 경로가 연결됐어. ')+imageryMessage+' / '+terrainInfo(),recovered?'warn':'ok');
     $('state').textContent='지도 연결됨';
@@ -359,7 +487,7 @@ function resumeSdkBoot(){
   };
   check();
 }
-$('terrainDiag').addEventListener('click',()=>tell(terrainDiagnostics(),'warn'));$('tileDiag').addEventListener('click',()=>tell(imageryInfo(),satelliteTileErrors?'warn':'ok'));$('connect').addEventListener('click',connect);$('diagnose').addEventListener('click',()=>{const e=environment();tell(e.msg,e.ok?'ok':'warn')});$('play').addEventListener('click',play);$('overview').addEventListener('click',()=>{pause();overview(true)});$('follow').addEventListener('click',()=>{cameraMode='follow';smoothedCamera=null;draw(true);$('state').textContent='추적 대기'});$('restart').addEventListener('click',()=>{pause();elapsed=0;draw(true);overview(true);$('state').textContent='처음으로'});$('demo').addEventListener('click',()=>installData(sampleRows.map(a=>({lat:a[0],lon:a[1],alt:a[2],t:a[3]})),'대둔산 · Avata 2'));
+$('realTerrain').addEventListener('click',loadRealTerrain);$('terrainDiag').addEventListener('click',()=>tell(terrainDiagnostics(),'warn'));$('tileDiag').addEventListener('click',()=>tell(imageryInfo(),satelliteTileErrors?'warn':'ok'));$('connect').addEventListener('click',connect);$('diagnose').addEventListener('click',()=>{const e=environment();tell(e.msg,e.ok?'ok':'warn')});$('play').addEventListener('click',play);$('overview').addEventListener('click',()=>{pause();overview(true)});$('follow').addEventListener('click',()=>{cameraMode='follow';smoothedCamera=null;draw(true);$('state').textContent='추적 대기'});$('restart').addEventListener('click',()=>{pause();elapsed=0;draw(true);overview(true);$('state').textContent='처음으로'});$('demo').addEventListener('click',()=>installData(sampleRows.map(a=>({lat:a[0],lon:a[1],alt:a[2],t:a[3]})),'대둔산 · Avata 2'));
 $('heightScale').addEventListener('change',()=>{
   heightScale=Number($('heightScale').value)||1;
   updateAltitudeInfo();
