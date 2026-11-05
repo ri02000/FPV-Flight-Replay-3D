@@ -96,7 +96,7 @@ input[type=file]{display:none}.upload{width:100%;cursor:pointer}.info{margin-top
  <div class="grid2" style="margin-top:8px"><button id="overview" disabled>전체 경로 보기</button><button id="follow" disabled>북쪽 고정 추적</button></div>
  <div class="export-box">
   <button id="recordVideo" type="button" class="accent" disabled>🎬 비행 동영상 저장 (1080p · 30fps)</button>
-  <div class="export-status" id="recordStatus" role="status">비행 경로와 드론을 3D 지도 위에서 자동 녹화해. 화면의 조작 패널은 영상에 포함되지 않아.</div>
+  <div class="export-status" id="recordStatus" role="status">비행 경로와 드론을 자동 녹화해. 조작 패널은 영상에서 제외돼. MP4 우선 저장, 미지원 브라우저는 WebM으로 저장해.</div>
   <a id="recordDownload" href="#" download>⬇ 녹화 파일 다시 다운로드</a>
  </div>
  <div class="readouts"><div class="readout"><small>현재 고도 · 해발</small><b id="alt">-</b></div><div class="readout"><small>진행 / 이동 거리</small><b id="distance">-</b></div></div>
@@ -302,7 +302,16 @@ function startVideoRecording(){
   pause();
   elapsed=0;
   draw(true);
+  // 녹화 첫 프레임부터 드론 추적 카메라로 시작한다.
+  cameraMode='follow';
+  smoothedCamera=null;
+  const first=points[0];
+  viewer.camera.setView({
+    destination:sdk().Cartesian3.fromDegrees(first.lon,first.lat-.0037,renderAltitude(first)+950),
+    orientation:{heading:0,pitch:sdk().Math.toRadians(-61),roll:0}
+  });
   const scene=viewer.scene;
+  scene.requestRender?.();
   const source=scene.canvas;
   const canvas=document.createElement('canvas');
   canvas.width=1920;canvas.height=1080;
