@@ -242,8 +242,8 @@ function overview(animated=true,duration=2.4){
   const range=Math.max(850,sphere.radius/Math.max(.2,Math.sin(fov/2))*1.55);
   const offset=new C.HeadingPitchRange(0,C.Math.toRadians(-72),range);
   if(typeof viewer.camera.flyToBoundingSphere==='function'){
-    if(animated)viewer.camera.flyToBoundingSphere(sphere,{duration,offset});
-    else viewer.camera.viewBoundingSphere(sphere,offset);
+    // duration:0도 flyTo 계열로 처리해 viewBoundingSphere의 좌표계 변환 부작용을 피한다.
+    viewer.camera.flyToBoundingSphere(sphere,{duration:animated?duration:0,offset});
   }else{
     // 오래된 VWorld SDK에 대한 카메라 호환 경로.
     const center=points.reduce((a,p)=>({lat:a.lat+p.lat/points.length,lon:a.lon+p.lon/points.length}),{lat:0,lon:0});
