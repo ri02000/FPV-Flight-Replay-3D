@@ -16,8 +16,8 @@
  <div id="origin" class="status">접속 환경 확인 중…</div>
  <label for="key">발급받은 브이월드 개발키</label>
  <input type="password" id="key" autocomplete="off" spellcheck="false" placeholder="인증키는 저장되지 않아">
- <div class="row"><button id="check">① 기본 방식 연결</button><button class="secondary" id="domain">② 도메인 지정 시험</button></div>
- <p class="note">처음에는 ①을 눌러줘. 실패하면 ②를 눌러 비교하면 돼. ②는 브이월드 SDK 호출에 <code>domain</code> 매개변수를 덧붙여 시험하는 방식이고 공식 권장 설정이라는 뜻은 아니야.</p>
+ <div class="row"><button id="check">① 기본 방식 연결</button><button class="secondary" id="domain">② 등록 URL 전체</button></div><div class="row"><button class="secondary" id="host">③ 호스트명만 지정</button></div>
+ <p class="note">①에서 vw.Map이 생성되지 않으면 ②를 눌러줘. ②는 인증키 등록 당시 입력한 <strong>전체 서비스URL</strong>을 domain에 넣어. ③은 호스트명만 넣어 비교하는 방식이야. 인증키는 어느 방식에서도 저장되지 않아.</p>
  <div class="row"><button class="secondary" id="copy">진단 결과만 복사</button><button class="secondary" id="reset">다시 시작</button></div>
  <label>진단 결과</label>
  <div id="log" role="status" aria-live="polite"></div>
@@ -38,7 +38,7 @@ window.addEventListener('error',e=>{if(e.target&&e.target!==window&&e.target.tag
 window.addEventListener('unhandledrejection',e=>note('비동기 오류: '+(e.reason?.message||String(e.reason))));
 window.alert=(m)=>{note('브이월드 알림: '+m)};
 function showEnvironment(){let here=location.origin+location.pathname,ok=location.origin===ORIGIN&&location.pathname.startsWith(PREFIX);$('origin').textContent=ok?'✓ GitHub Pages 등록 주소에서 실행 중':'⚠ 접속 주소 확인: '+here;note('실행 주소: '+here);note('HTTPS: '+(location.protocol==='https:'?'예':'아니오'));note('WebGL: '+(function(){try{let c=document.createElement('canvas');return !!(c.getContext('webgl2')||c.getContext('webgl'))}catch(e){return false}})()?'지원':'사용 불가');note('API 등록 주소 일치 형식: '+(ok?'예':'아니오'))}
-function finish(text){note(text);$('check').disabled=false;$('domain').disabled=false}
+function finish(text){note(text);$('check').disabled=false;$('domain').disabled=false;$('host').disabled=false}
 function initMap(id){if(id!==runId)return;note('SDK 함수 발견: 지도 초기화 시도');try{
  const v=window.vw;if(!v?.Map||!v?.CameraPosition||!v?.CoordZ||!v?.Direction)throw new Error('지도 생성에 필요한 API 객체 일부가 없음');
  v.ws3dInitCallBack=function(){if(id!==runId)return;note('✓ 브이월드 초기화 콜백 실행');note(featureSummary());$('placeholder').classList.add('hidden');finish('성공: 지도 생성 콜백 수신. 이제 실제 3D 지형이 보이는지 확인해 줘.')};
@@ -48,10 +48,10 @@ function initMap(id){if(id!==runId)return;note('SDK 함수 발견: 지도 초기
  setTimeout(()=>{if(id!==runId)return;if(window.ws3d?.viewer?.scene){note('✓ ws3d.viewer.scene 접근 가능');$('placeholder').classList.add('hidden');finish('지도 객체 준비 확인. 실제 위성 지형 영상이 표시되는지 확인해 줘.')}else finish('SDK 지도 생성은 호출했으나 25초 동안 3D 뷰어 준비가 확인되지 않음. 위 오류 메시지를 확인해 줘.')},25000);
  }catch(e){finish('지도 생성 중 오류: '+(e?.message||String(e)))} }
 function connect(mode){if(location.origin!==ORIGIN||!location.pathname.startsWith(PREFIX)){note('등록된 웹사이트 주소에서만 시험해 줘.');return}let key=$('key').value.trim();if(!/^[A-Za-z0-9-]{24,90}$/.test(key)){note('먼저 개발키를 입력해 줘.');return}
- ++runId;let id=runId;logRows=[];$('log').textContent='';note('연결 방식: '+(mode==='domain'?'도메인 매개변수 포함':'공식 기본 방식'));
- note('SDK 주소: https://map.vworld.kr/js/webglMapInit.js.do?version=3.0&apiKey=[숨김]'+(mode==='domain'?'&domain=ri02000.github.io':''));
- $('check').disabled=true;$('domain').disabled=true;
- const url='https://map.vworld.kr/js/webglMapInit.js.do?version=3.0&apiKey='+encodeURIComponent(key)+(mode==='domain'?'&domain='+encodeURIComponent(location.hostname):'');
+ ++runId;let id=runId;logRows=[];$('log').textContent='';note('연결 방식: '+(mode==='domain'?'등록 URL 전체를 domain에 포함':mode==='host'?'호스트명만 domain에 포함':'공식 기본 방식'));
+ note('SDK 주소: https://map.vworld.kr/js/webglMapInit.js.do?version=3.0&apiKey=[숨김]'+(mode==='domain'?'&domain=[등록된 전체 URL]':mode==='host'?'&domain=ri02000.github.io':''));
+ $('check').disabled=true;$('domain').disabled=true;$('host').disabled=true;
+ const url='https://map.vworld.kr/js/webglMapInit.js.do?version=3.0&apiKey='+encodeURIComponent(key)+(mode==='domain'?'&domain='+encodeURIComponent(ORIGIN+PREFIX):mode==='host'?'&domain='+encodeURIComponent(location.hostname):'');
  const script=document.createElement('script');script.async=true;script.src=url;
  let loaded=false;
  script.onload=()=>{if(id!==runId)return;loaded=true;note('✓ SDK 파일 onload 이벤트 수신');note(featureSummary());let n=0;const poll=()=>{if(id!==runId)return;if(typeof window.vw?.Map==='function'){initMap(id);return}if(++n>=30){finish('SDK 응답은 받았지만 vw.Map 함수가 생성되지 않음. 이 상태는 인증키/등록 URL 오류, 서버가 보낸 비정상 스크립트, 또는 브라우저 스크립트 실행 오류 모두 가능해. 위에 브이월드 알림/자바스크립트 오류가 있는지 확인해 줘.');return}setTimeout(poll,300)};poll()};
@@ -59,7 +59,7 @@ function connect(mode){if(location.origin!==ORIGIN||!location.pathname.startsWit
  document.head.appendChild(script);
  setTimeout(()=>{if(id===runId&&!loaded){finish('20초 동안 SDK 파일 onload 이벤트가 없음. 서버 응답 또는 네트워크 차단 의심')}},20000)
  }
-$('check').onclick=()=>connect('basic');$('domain').onclick=()=>connect('domain');
+$('check').onclick=()=>connect('basic');$('domain').onclick=()=>connect('domain');$('host').onclick=()=>connect('host');
 $('copy').onclick=async()=>{const diagnostic=logRows.join('\n');try{await navigator.clipboard.writeText(diagnostic);note('진단 결과 복사 완료 (키 제외)')}catch(e){note('자동 복사 실패. 위 진단 결과를 직접 선택해서 복사해 줘.')}};
 $('reset').onclick=()=>location.reload();
 showEnvironment();
