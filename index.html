@@ -132,6 +132,9 @@ function fail(s){
   tell(s,'warn');$('state').textContent='연결 실패';
 }
 // 브이월드가 지도 본체를 만든 뒤 로고/내비게이션 초기화에서 예외를 내는 경우도 있어.
+function safeError(value){
+  return String(value).replace(/(apiKey=)[^&\\s)]+/gi,'$1[숨김]').replace(/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/gi,'[숨김]');
+}
 function usableViewer(){
   const v=window.ws3d?.viewer, C=window.Cesium;
   return !!(v && C?.Cartesian3 && C?.Color && v.entities?.add && v.entities?.remove && v.camera?.setView && v.scene?.canvas);
@@ -150,7 +153,7 @@ function mapReady(recovered=false){
     $('state').textContent='지도 연결됨';
   }catch(err){
     connected=false;
-    fail('3D 비행 경로 표시 오류: '+String(err.stack||err.message||err).slice(0,450));
+    fail('3D 비행 경로 표시 오류: '+safeError(err.stack||err.message||err).slice(0,450));
   }
 }
 function startMap(){
@@ -169,7 +172,7 @@ function startMap(){
       else fail('지도 초기화가 완료되지 않았어. viewer='+(!!window.ws3d?.viewer)+', Cesium='+(!!window.Cesium));
     },19000);
   }catch(err){
-    const stack=String(err.stack||err.message||err).split('\n').slice(0,4).join(' | ').slice(0,500);
+    const stack=safeError(err.stack||err.message||err).split('\n').slice(0,4).join(' | ').slice(0,500);
     $('state').textContent='지도 복구 확인';
     tell('지도 초기화 중 부가기능 오류가 발생했어. 이미 생성된 3D 지도 본체로 비행 경로 연결을 시도 중이야…','warn');
     let tries=0;
