@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="dark">
-<title>FPV Flight Replay 3D · V-World v0.4.2</title>
+<title>FPV Flight Replay 3D · V-World v0.5</title>
 <script>
 /* V-World's documented examples load its SDK synchronously while HTML is parsed.
    A key is kept only in sessionStorage for this tab while restarting the page. */
@@ -61,7 +61,7 @@ input[type=file]{display:none}.upload{width:100%;cursor:pointer}.info{margin-top
 <div id="vmap"></div>
 <div class="fallback" id="fallback"><div class="globe">🌏</div><h2>대둔산 3D 지형 연결 준비</h2><p>브이월드 공식 3D 지도 API를 연결하면 여기에 지형이 나타나.<br>기존처럼 저해상도 대체 지도를 보여주지는 않을게.</p></div>
 <aside class="panel">
- <div class="tag">FPV FLIGHT REPLAY 3D · v0.4.2</div>
+ <div class="tag">FPV FLIGHT REPLAY 3D · v0.5</div>
  <h1><span>브이월드</span> 3D 비행 재생</h1>
  <p>아바타 2 대둔산 비행 기록을 3D 지도에서 재생해. 연한 파랑은 앞으로 갈 길, 진한 파랑은 지나온 길.</p>
  <label for="key">브이월드 개발 API 키</label>
@@ -72,6 +72,9 @@ input[type=file]{display:none}.upload{width:100%;cursor:pointer}.info{margin-top
  <div class="grid2"><button id="demo">🚁 대둔산 예제</button><label class="upload" for="gpx">↑ 다른 GPX 선택</label></div>
  <input type="file" id="gpx" accept=".gpx,application/gpx+xml,application/xml,text/xml">
  <div class="info" id="meta">GPS 데이터를 읽는 중…</div>
+ <div class="info" id="altmeta" style="font-size:11px;margin-top:6px">이륙 지면 고도를 확인하는 중…</div>
+ <label for="heightScale">고도 변화 표현</label>
+ <select id="heightScale"><option value="1" selected>실제 고도 변화 1배 (기본)</option><option value="1.5">상승·하강 1.5배 강조</option><option value="2">상승·하강 2배 강조</option></select>
  <label for="duration">비행 영상 재생 시간</label>
  <select id="duration"><option value="20">20초</option><option value="30" selected>30초</option><option value="45">45초</option><option value="60">60초</option><option value="90">90초</option></select>
  <div class="grid2" style="margin-top:10px"><button id="play" class="accent" disabled>▶ 비행 시작</button><button id="restart" disabled>↺ 처음으로</button></div>
@@ -89,6 +92,7 @@ const sampleRows=JSON.parse($('demo-data').textContent);
 const EXPECTED_ORIGIN='https://ri02000.github.io';
 const EXPECTED_PATH='/FPV-Flight-Replay-3D/';
 let points=[],times=[],total=0,trackDistance=[],fullDistance=0,elapsed=0,playing=false,startTime=0,raf=0,viewer=null,map=null,connected=false,entities=[],pastLine=[],cameraMode='follow',smoothedCamera=null,lastTrace=-1,loaderTimer=null,connectionState='idle';
+let groundAtTakeoff=0,terrainGroundSource='측정 전',terrainCalibrationSeq=0,heightScale=1;
 const sdk=()=>window.Cesium;
 const tell=(s,cls='')=>{$('status').textContent=s;$('status').className='info '+cls};
 const fmt=t=>{t=Math.max(0,Math.floor(t));return String(Math.floor(t/60)).padStart(2,'0')+':'+String(t%60).padStart(2,'0')};
@@ -98,18 +102,87 @@ function environment(){const loc=location;if(loc.protocol==='file:')return {ok:f
 function normalize(arr){if(!arr.length)throw Error('GPS 좌표가 없어.');let t0=arr.find(p=>Number.isFinite(p.t))?.t??0;let last=-Infinity;const out=[];for(const p of arr){const t=p.t-t0;if(!Number.isFinite(p.lat)||!Number.isFinite(p.lon)||!Number.isFinite(t)||Math.abs(p.lat)>90||Math.abs(p.lon)>180||t<=last)continue;out.push({lat:p.lat,lon:p.lon,alt:Number.isFinite(p.alt)?p.alt:0,t});last=t;}if(out.length<2||out.at(-1).t<=0)throw Error('시간과 GPS가 있는 좌표 2개 이상 필요해.');return out;}
 function parseGPX(text){const xml=new DOMParser().parseFromString(text,'application/xml');if(xml.getElementsByTagName('parsererror').length)throw Error('GPX XML 오류');let nodes=[...xml.getElementsByTagName('*')].filter(n=>n.localName==='trkpt');if(!nodes.length)nodes=[...xml.getElementsByTagName('*')].filter(n=>n.localName==='rtept');const rows=nodes.map((n,i)=>{const child=k=>[...n.children].find(x=>x.localName===k)?.textContent;const timestamp=Date.parse(child('time')||'');const elevation=Number(child('ele'));return {lat:Number(n.getAttribute('lat')),lon:Number(n.getAttribute('lon')),alt:Number.isFinite(elevation)?elevation:0,t:Number.isFinite(timestamp)?timestamp/1000:i};});return normalize(rows)}
 function sample(t){if(t<=0)return {...points[0],idx:0};if(t>=total)return {...points.at(-1),idx:points.length-1};let lo=0,hi=points.length-1;while(hi-lo>1){const mid=(lo+hi)>>1;if(points[mid].t<=t)lo=mid;else hi=mid;}const a=points[lo],b=points[hi],f=(t-a.t)/(b.t-a.t);return {lat:a.lat+(b.lat-a.lat)*f,lon:a.lon+(b.lon-a.lon)*f,alt:a.alt+(b.alt-a.alt)*f,idx:lo,t};}
-function cart(p){return sdk().Cartesian3.fromDegrees(p.lon,p.lat,p.alt+4)}
+// GPS의 해발 고도는 이륙지점과의 차이만 사용하고, 이륙지점의 지도 지면 높이에 맞춘다.
+// 기준점 한 곳으로 보정하므로 원본 로그의 상승/하강 변화는 그대로 유지된다.
+function renderAltitude(p){
+  const start=points[0]?.alt??0;
+  return groundAtTakeoff+(p.alt-start)*heightScale+3;
+}
+function cart(p){return sdk().Cartesian3.fromDegrees(p.lon,p.lat,renderAltitude(p))}
+function updateAltitudeInfo(){
+  if(!points.length)return;
+  const base=points[0].alt;
+  const low=Math.min(...points.map(p=>p.alt))-base;
+  const high=Math.max(...points.map(p=>p.alt))-base;
+  $('altmeta').textContent='이륙 로그 '+base.toFixed(1)+'m · 지도 지면 '+groundAtTakeoff.toFixed(1)+'m ('+terrainGroundSource+') · 이륙점 대비 '+low.toFixed(0)+'~+'+high.toFixed(0)+'m · 표현 '+heightScale+'배';
+}
+async function groundHeightAtTakeoff(p){
+  const C=sdk(),v=viewer,scene=v.scene;
+  const terrain=v.terrainProvider||scene?.globe?.terrainProvider;
+  const isEllipsoid=!!(C.EllipsoidTerrainProvider && terrain instanceof C.EllipsoidTerrainProvider);
+  const carto=()=>C.Cartographic.fromDegrees(p.lon,p.lat);
+  const rendered=()=>{
+    try{return scene.globe?.getHeight?.(carto())}catch(e){return undefined}
+  };
+  if(!isEllipsoid && terrain){
+    const attempts=[
+      ()=>C.sampleTerrainMostDetailed?.(terrain,[carto()]),
+      ()=>C.sampleTerrain?.(terrain,12,[carto()])
+    ];
+    for(let i=0;i<attempts.length;i++){
+      try{
+        const request=attempts[i]();
+        if(!request)continue;
+        const positions=await Promise.race([
+          Promise.resolve(request),
+          new Promise((_,reject)=>setTimeout(()=>reject(Error('terrain timeout')),4500))
+        ]);
+        const h=positions?.[0]?.height;
+        if(Number.isFinite(h))return {height:h,source:i===0?'지형 DEM 실측':'지형 DEM 표본'};
+      }catch(e){}
+    }
+  }
+  // Cesium이 화면에 지형 타일을 로드한 경우 샘플링이 막혀도 화면 지형 높이를 읽는다.
+  for(let i=0;i<9;i++){
+    const h=rendered();
+    if(Number.isFinite(h)&&(!isEllipsoid || h!==0))return {height:h,source:'화면 지형 높이'};
+    if(isEllipsoid)break;
+    await new Promise(resolve=>setTimeout(resolve,350));
+  }
+  return {height:0,source:isEllipsoid?'평면 지구본, 실제 산악 지형 없음':'지형 높이 조회 실패, 0m 임시 기준'};
+}
+async function startAltitudeCalibration(){
+  if(!connected||!points.length)return;
+  const id=++terrainCalibrationSeq;
+  groundAtTakeoff=0;terrainGroundSource='지형 측정 중';
+  updateAltitudeInfo();
+  tell('이륙 지점의 지형 높이를 측정하고 GPS 상승·하강을 정렬하는 중이야…','warn');
+  const p=points[0];
+  let result;
+  try{result=await groundHeightAtTakeoff(p)}
+  catch(err){result={height:0,source:'지형 높이 조회 오류: '+safeError(err.message||err).slice(0,100)}}
+  if(id!==terrainCalibrationSeq||!connected)return;
+  groundAtTakeoff=result.height;
+  terrainGroundSource=result.source;
+  updateAltitudeInfo();
+  makePath();
+  if(result.source.includes('평면')||result.source.includes('실패')||result.source.includes('오류')){
+    tell('비행 고도는 이륙점에 맞췄지만, '+result.source+'이야. 위성사진과 별도로 실제 3D 산악 지형 데이터가 필요한 상태야.','warn');
+  }else{
+    tell('이륙 지점의 지면 높이 '+result.height.toFixed(1)+'m에 GPS 경로를 맞췄어. 상승·하강 원본 데이터는 보존했어.','ok');
+  }
+}
 function makePath(){if(!connected||!points.length)return;const C=sdk();entities.forEach(e=>viewer.entities.remove(e));entities=[];const c=points.map(cart);pastLine=[c[0],c[0]];const future=viewer.entities.add({name:'앞으로 갈 경로',polyline:{positions:c,width:3,material:C.Color.fromCssColorString('#a3d8ff').withAlpha(.50),arcType:C.ArcType.NONE}});const past=viewer.entities.add({name:'지나온 경로',polyline:{positions:new C.CallbackProperty(()=>pastLine,false),width:5,material:C.Color.fromCssColorString('#1688ff'),arcType:C.ArcType.NONE}});const symbol=document.createElement('canvas');symbol.width=64;symbol.height=64;const pen=symbol.getContext('2d');pen.fillStyle='#052038';pen.beginPath();pen.moveTo(32,2);pen.lineTo(53,60);pen.lineTo(32,45);pen.lineTo(11,60);pen.closePath();pen.fill();pen.fillStyle='#78edff';pen.beginPath();pen.moveTo(32,7);pen.lineTo(45,49);pen.lineTo(32,37);pen.lineTo(19,49);pen.closePath();pen.fill();const drone=viewer.entities.add({name:'드론',position:c[0],billboard:{image:symbol.toDataURL(),width:41,height:41,disableDepthTestDistance:Number.POSITIVE_INFINITY,verticalOrigin:C.VerticalOrigin.CENTER}});entities=[future,past,drone];lastTrace=-1;draw(true);overview(false)}
 function draw(force=false){if(!points.length)return;const p=sample(elapsed);const n=Math.max(0,Math.min(1000,Math.round(elapsed/total*1000)));$('scrub').value=n;$('now').textContent=fmt(elapsed/total*Number($('duration').value));$('alt').textContent=Math.round(p.alt)+' m';$('distance').textContent=`${Math.round(elapsed/total*100)}% · ${(trackDistance[p.idx]||0).toFixed(2)} km`;if(!connected||!entities.length)return;entities[2].position=cart(p);
 // Update the path at GPS sample boundaries, but keep interpolated current position at the tip.
 if(force||p.idx!==lastTrace){pastLine=points.slice(0,p.idx+1).map(cart);lastTrace=p.idx;}const tip=cart(p);if(pastLine.length===1)pastLine=[pastLine[0],tip];else if(pastLine.length>1){if(lastTrace===p.idx&&pastLine.length>p.idx+1)pastLine.pop();pastLine.push(tip)}
 const next=points[Math.min(p.idx+2,points.length-1)],prev=points[Math.max(0,p.idx-2)];const dir=Math.atan2((next.lon-prev.lon)*Math.cos(p.lat*rad),next.lat-prev.lat);entities[2].billboard.rotation=-dir;
-if(playing&&cameraMode==='follow'){const speed=.105;if(!smoothedCamera)smoothedCamera={lat:p.lat,lon:p.lon,alt:p.alt};smoothedCamera.lat+=(p.lat-smoothedCamera.lat)*speed;smoothedCamera.lon+=(p.lon-smoothedCamera.lon)*speed;smoothedCamera.alt+=(p.alt-smoothedCamera.alt)*speed;const s=smoothedCamera;viewer.camera.setView({destination:sdk().Cartesian3.fromDegrees(s.lon,s.lat-.0054,s.alt+1550),orientation:{heading:0,pitch:sdk().Math.toRadians(-67),roll:0}})}viewer.scene.requestRender?.()}
-function overview(animated=true){if(!connected||!points.length)return;cameraMode='overview';$('state').textContent='전체 조망';const center=points.reduce((a,p)=>({lat:a.lat+p.lat/points.length,lon:a.lon+p.lon/points.length}),{lat:0,lon:0});const options={destination:sdk().Cartesian3.fromDegrees(center.lon,center.lat-.012,3800),orientation:{heading:0,pitch:sdk().Math.toRadians(-66),roll:0}};if(animated)viewer.camera.flyTo({...options,duration:2.4});else viewer.camera.setView(options)}
+if(playing&&cameraMode==='follow'){const speed=.105;if(!smoothedCamera)smoothedCamera={lat:p.lat,lon:p.lon,alt:p.alt};smoothedCamera.lat+=(p.lat-smoothedCamera.lat)*speed;smoothedCamera.lon+=(p.lon-smoothedCamera.lon)*speed;smoothedCamera.alt+=(p.alt-smoothedCamera.alt)*speed;const s=smoothedCamera;viewer.camera.setView({destination:sdk().Cartesian3.fromDegrees(s.lon,s.lat-.0037,renderAltitude(s)+950),orientation:{heading:0,pitch:sdk().Math.toRadians(-61),roll:0}})}viewer.scene.requestRender?.()}
+function overview(animated=true){if(!connected||!points.length)return;cameraMode='overview';$('state').textContent='전체 조망';const center=points.reduce((a,p)=>({lat:a.lat+p.lat/points.length,lon:a.lon+p.lon/points.length}),{lat:0,lon:0});const options={destination:sdk().Cartesian3.fromDegrees(center.lon,center.lat-.010,3200),orientation:{heading:0,pitch:sdk().Math.toRadians(-62),roll:0}};if(animated)viewer.camera.flyTo({...options,duration:2.4});else viewer.camera.setView(options)}
 function pause(){playing=false;cancelAnimationFrame(raf);$('play').textContent='▶ 비행 시작';$('state').textContent='일시정지'}
 function play(){if(!connected){tell('아직 3D 지도에 연결되지 않았어. 먼저 지도를 연결해 줘.','warn');return}if(playing){pause();return}if(elapsed>=total){elapsed=0;draw(true)}cameraMode='follow';smoothedCamera=null;playing=true;startTime=performance.now()-elapsed/total*Number($('duration').value)*1000;$('play').textContent='Ⅱ 일시정지';$('state').textContent='비행 중';raf=requestAnimationFrame(tick)}
 function tick(now){if(!playing)return;elapsed=Math.min(total,(now-startTime)/1000*total/Number($('duration').value));draw();if(elapsed>=total){pause();overview(true);$('state').textContent='완료';tell('비행 완료. 전체 경로를 보여주고 있어.','ok');return}raf=requestAnimationFrame(tick)}
-function installData(arr,title){pause();points=normalize(arr);total=points.at(-1).t;elapsed=0;trackDistance=[0];for(let i=1;i<points.length;i++)trackDistance.push(trackDistance.at(-1)+hav(points[i-1],points[i]));fullDistance=trackDistance.at(-1);$('meta').textContent=`${title}\n${points.length.toLocaleString()} GPS 좌표 · 원본 ${fmt(total)} · 총 ${fullDistance.toFixed(2)} km`;draw(true);if(connected)makePath()}
+function installData(arr,title){pause();points=normalize(arr);total=points.at(-1).t;elapsed=0;trackDistance=[0];for(let i=1;i<points.length;i++)trackDistance.push(trackDistance.at(-1)+hav(points[i-1],points[i]));fullDistance=trackDistance.at(-1);$('meta').textContent=`${title}\n${points.length.toLocaleString()} GPS 좌표 · 원본 ${fmt(total)} · 총 ${fullDistance.toFixed(2)} km`;draw(true);if(connected){makePath();startAltitudeCalibration()}else updateAltitudeInfo()}
 function dropTempKey(){sessionStorage.removeItem('fpv-vworld-temp-key');sessionStorage.removeItem('fpv-vworld-auto');sessionStorage.removeItem('fpv-vworld-mode');sessionStorage.removeItem('fpv-vworld-last-error')}
 function fail(s){
   clearTimeout(loaderTimer);
@@ -198,6 +271,7 @@ function mapReady(recovered=false){
     $('fallback').style.display='none';
     tell((recovered?'지도 본체와 비행 경로가 연결됐어. ':'브이월드 3D 지도와 비행 경로가 연결됐어. ')+imageryMessage+' / '+terrainInfo(),recovered?'warn':'ok');
     $('state').textContent='지도 연결됨';
+    startAltitudeCalibration();
   }catch(err){
     connected=false;
     fail('3D 비행 경로 표시 오류: '+safeError(err.stack||err.message||err).slice(0,450));
@@ -265,6 +339,11 @@ function resumeSdkBoot(){
   check();
 }
 $('tileDiag').addEventListener('click',()=>tell(imageryInfo(),satelliteTileErrors?'warn':'ok'));$('connect').addEventListener('click',connect);$('diagnose').addEventListener('click',()=>{const e=environment();tell(e.msg,e.ok?'ok':'warn')});$('play').addEventListener('click',play);$('overview').addEventListener('click',()=>{pause();overview(true)});$('follow').addEventListener('click',()=>{cameraMode='follow';smoothedCamera=null;draw(true);$('state').textContent='추적 대기'});$('restart').addEventListener('click',()=>{pause();elapsed=0;draw(true);overview(true);$('state').textContent='처음으로'});$('demo').addEventListener('click',()=>installData(sampleRows.map(a=>({lat:a[0],lon:a[1],alt:a[2],t:a[3]})),'대둔산 · Avata 2'));
+$('heightScale').addEventListener('change',()=>{
+  heightScale=Number($('heightScale').value)||1;
+  updateAltitudeInfo();
+  if(connected){pause();makePath();tell(heightScale===1?'실제 고도 변화 1배로 표시 중이야.':'상승·하강을 '+heightScale+'배로 강조했어. 원본 GPS 기록은 변경하지 않아.','ok')}
+});
 $('duration').addEventListener('change',()=>{$('total').textContent=fmt(+$('duration').value);draw(true)});$('scrub').addEventListener('input',()=>{pause();elapsed=Number($('scrub').value)/1000*total;draw(true)});$('gpx').addEventListener('change',async ev=>{const f=ev.target.files?.[0];if(!f)return;try{installData(parseGPX(await f.text()),f.name);tell('GPX 파일을 읽었어. 3D 지도 연결 후 재생할 수 있어.','ok')}catch(e){tell('GPX 읽기 오류: '+e.message,'warn')}});
 window.addEventListener('unhandledrejection',e=>{if(connectionState==='loading'||connectionState==='initializing')tell('3D 지도 연결 중 오류가 발생했어. 인증키 등록 주소와 브이월드 서버 응답을 확인해야 해.','warn')});
 installData(sampleRows.map(a=>({lat:a[0],lon:a[1],alt:a[2],t:a[3]})),'대둔산 · Avata 2');const e=environment();tell(e.msg,e.ok?'ok':'warn');resumeSdkBoot();
