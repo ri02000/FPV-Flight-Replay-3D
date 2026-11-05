@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="dark">
-<title>FPV Flight Replay 3D · V-World v0.4</title>
+<title>FPV Flight Replay 3D · V-World v0.4.1</title>
 <script>
 /* V-World's documented examples load its SDK synchronously while HTML is parsed.
    A key is kept only in sessionStorage for this tab while restarting the page. */
@@ -61,7 +61,7 @@ input[type=file]{display:none}.upload{width:100%;cursor:pointer}.info{margin-top
 <div id="vmap"></div>
 <div class="fallback" id="fallback"><div class="globe">🌏</div><h2>대둔산 3D 지형 연결 준비</h2><p>브이월드 공식 3D 지도 API를 연결하면 여기에 지형이 나타나.<br>기존처럼 저해상도 대체 지도를 보여주지는 않을게.</p></div>
 <aside class="panel">
- <div class="tag">FPV FLIGHT REPLAY 3D · v0.4</div>
+ <div class="tag">FPV FLIGHT REPLAY 3D · v0.4.1</div>
  <h1><span>브이월드</span> 3D 비행 재생</h1>
  <p>아바타 2 대둔산 비행 기록을 3D 지도에서 재생해. 연한 파랑은 앞으로 갈 길, 진한 파랑은 지나온 길.</p>
  <label for="key">브이월드 개발 API 키</label>
@@ -114,7 +114,7 @@ function dropTempKey(){sessionStorage.removeItem('fpv-vworld-temp-key');sessionS
 function fail(s){
   clearTimeout(loaderTimer);
   connectionState='failed';
-  if(window.__vworldBoot?.active && sessionStorage.getItem('fpv-vworld-auto')==='1'){
+  if(window.__vworldBoot?.active && sessionStorage.getItem('fpv-vworld-auto')==='1' && !s.includes('지도 초기화 오류')){
     const step=Number(sessionStorage.getItem('fpv-vworld-mode')||0);
     const msg=s+(window.__vworldBoot.warning?' / 응답: '+window.__vworldBoot.warning:'')+(window.__vworldBoot.error?' / JS: '+window.__vworldBoot.error:'');
     if(step<2){
@@ -131,27 +131,56 @@ function fail(s){
   $('connect').disabled=false;
   tell(s,'warn');$('state').textContent='연결 실패';
 }
-function mapReady(){
+// 브이월드가 지도 본체를 만든 뒤 로고/내비게이션 초기화에서 예외를 내는 경우도 있어.
+function usableViewer(){
+  const v=window.ws3d?.viewer, C=window.Cesium;
+  return !!(v && C?.Cartesian3 && C?.Color && v.entities?.add && v.entities?.remove && v.camera?.setView && v.scene?.canvas);
+}
+function mapReady(recovered=false){
   if(connected)return;
-  const v=window.ws3d?.viewer;
-  if(!v||!window.Cesium){fail('3D 지도는 초기화됐지만 Cesium 뷰어를 찾지 못했어.');return}
+  if(!usableViewer()){fail('지도 초기화 후 Cesium 뷰어가 완성되지 않았어.');return}
   clearTimeout(loaderTimer);
-  viewer=v;connected=true;connectionState='ready';
-  dropTempKey();$('key').value='';
-  $('connect').disabled=true;$('play').disabled=false;$('restart').disabled=false;$('overview').disabled=false;$('follow').disabled=false;
-  $('fallback').style.display='none';makePath();
-  tell('브이월드 3D 지도 연결 성공! 대둔산 지형과 드론 비행 경로를 확인해 줘.','ok');$('state').textContent='지도 연결됨';
+  viewer=window.ws3d.viewer;connected=true;connectionState='ready';
+  try{
+    makePath();
+    dropTempKey();$('key').value='';
+    $('connect').disabled=true;$('play').disabled=false;$('restart').disabled=false;$('overview').disabled=false;$('follow').disabled=false;
+    $('fallback').style.display='none';
+    tell(recovered?'지도 본체가 살아 있어 비행 경로를 연결했어. 부가기능 초기화 오류는 무시했어.':'브이월드 3D 지도와 비행 경로가 연결됐어!','ok');
+    $('state').textContent='지도 연결됨';
+  }catch(err){
+    connected=false;
+    fail('3D 비행 경로 표시 오류: '+String(err.stack||err.message||err).slice(0,450));
+  }
 }
 function startMap(){
   if(!window.vw?.Map||!window.vw?.CameraPosition){fail('브이월드 지도를 만드는 함수가 SDK에 없어.');return}
+  connectionState='initializing';
+  vw.ws3dInitCallBack=()=>mapReady();
   try{
-    connectionState='initializing';
-    vw.ws3dInitCallBack=mapReady;
     map=new vw.Map();
-    map.setOption({mapId:'vmap',initPosition:new vw.CameraPosition(new vw.CoordZ(127.321,36.120,2600),new vw.Direction(0,-65,0)),logo:true,navigation:true});
-    map.start();$('state').textContent='지도 초기화';
-    if(!connected) loaderTimer=setTimeout(()=>{if(!connected){if(window.ws3d?.viewer?.scene){mapReady()}else fail('지도 초기화가 완료되지 않았어.')}},19000);
-  }catch(err){fail('브이월드 지도 초기화 오류: '+String(err.message||err))}
+    // 우선 선택형 내비게이션/로고 UI를 끄고 지도와 비행 경로만 검사.
+    map.setOption({mapId:'vmap',initPosition:new vw.CameraPosition(new vw.CoordZ(127.321,36.120,2600),new vw.Direction(0,-65,0)),logo:false,navigation:false});
+    map.start();
+    $('state').textContent='지도 초기화';
+    if(!connected) loaderTimer=setTimeout(()=>{
+      if(connected)return;
+      if(usableViewer())mapReady(true);
+      else fail('지도 초기화가 완료되지 않았어. viewer='+(!!window.ws3d?.viewer)+', Cesium='+(!!window.Cesium));
+    },19000);
+  }catch(err){
+    const stack=String(err.stack||err.message||err).split('\n').slice(0,4).join(' | ').slice(0,500);
+    $('state').textContent='지도 복구 확인';
+    tell('지도 초기화 중 부가기능 오류가 발생했어. 이미 생성된 3D 지도 본체로 비행 경로 연결을 시도 중이야…','warn');
+    let tries=0;
+    const recover=()=>{
+      if(connected)return;
+      if(usableViewer()){mapReady(true);return}
+      if(++tries<32){setTimeout(recover,250);return}
+      fail('브이월드 지도 초기화 오류: '+stack+' / viewer='+(!!window.ws3d?.viewer)+', Cesium='+(!!window.Cesium));
+    };
+    recover();
+  }
 }
 function connect(){
   if(connected)return;
