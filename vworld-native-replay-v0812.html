@@ -228,7 +228,7 @@ function scheduleClipPreview(){
 }
 function updateClipPreview(){
  if(!connected||!viewer||!sourcePoints.length)return;
- if(clipApplied){clearClipPreview();return}
+ if(clipApplied||playing||recordingSession||(clipStart<=.00001&&clipEnd>=sourcePoints.at(-1).t-.00001)){clearClipPreview();return}
  const C=sdk(),positions=sourceInterval(clipStart,clipEnd).map(cart);
  if(!positions.length)return;
  if(!clipPreview){
@@ -251,6 +251,7 @@ function initClipEditor(){
 }
 function editClipBound(which,t){
  if(recordingSession||!sourcePoints.length)return;
+ if(playing)pause();
  const duration=sourcePoints.at(-1).t,gap=Math.min(.1,duration/2);
  const n=Math.max(0,Math.min(duration,Number(t)||0));
  if(which==='start')clipStart=Math.max(0,Math.min(n,clipEnd-gap));
@@ -267,6 +268,10 @@ function setActiveTrack(route,selected){
  refreshClipSummary();draw(true);
  if(connected){makePath();startAltitudeCalibration()}else updateAltitudeInfo();
  scheduleClipPreview();
+}
+function clipHasPendingChange(){
+ return sourcePoints.length&&
+  (Math.abs(clipStart-appliedStartTime)>.05||Math.abs(clipEnd-(appliedStartTime+total))>.05);
 }
 function applyClipSelection(){
  if(recordingSession||!sourcePoints.length)return;
@@ -789,6 +794,8 @@ function stopVideoRecording(cancel=false){
 }
 function startVideoRecording(){
   if(recordingSession)return;
+  if(clipHasPendingChange()){tell('시작점과 끝점을 변경했어. 녹화 전에 「선택 구간 적용」을 눌러 줘.','warn');return;}
+  clearClipPreview();
   if(!connected||!viewer||!points.length){tell('3D 지도를 연결하고 GPX 경로를 불러온 뒤 녹화해 줘.','warn');return}
   if(!window.MediaRecorder||!HTMLCanvasElement.prototype.captureStream){
     setRecordingStatus('이 브라우저는 영상 녹화를 지원하지 않아. 맥의 Chrome 최신 버전에서 시도해 줘.',true);return;
@@ -925,6 +932,8 @@ function startVideoRecording(){
 }
 function pause(){cancelOutro();playing=false;cancelAnimationFrame(raf);$('play').textContent='▶ 비행 시작';$('state').textContent='일시정지'}
 function play(){
+  if(clipHasPendingChange()){tell('시작점과 끝점을 변경했어. 먼저 「선택 구간 적용」을 눌러 줘.','warn');return;}
+  clearClipPreview();
   if(!connected){tell('아직 3D 지도에 연결되지 않았어. 먼저 지도를 연결해 줘.','warn');return}
   if(playing){pause();return}
   cancelOutro();
