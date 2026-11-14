@@ -75,7 +75,7 @@ footer{padding:14px 22px;text-align:center;font-size:12px;color:#85a4b8}
 <div><label for="ground">이륙 지점 해발고도 (m)</label><input id="ground" type="number" step=".1" min="-500" max="9000" placeholder="자동 조회 또는 수동 입력"></div></div>
 <div class="cols"><div><label for="takeoffLat">이륙 지점 위도 (선택)</label><input id="takeoffLat" type="number" step="any" min="-90" max="90" placeholder="미입력: 첫 인식 좌표"></div>
 <div><label for="takeoffLon">이륙 지점 경도 (선택)</label><input id="takeoffLon" type="number" step="any" min="-180" max="180" placeholder="미입력: 첫 인식 좌표"></div></div>
-<div class="row" style="margin-top:10px"><button id="autoGround" type="button" disabled>🌏 이륙 지점 해발고도 자동 조회</button><button id="clearGround" type="button">고도 입력 지우기</button></div>
+<div class="row" style="margin-top:10px"><button id="autoGround" type="button">🌏 이륙 지점 해발고도 자동 조회</button><button id="clearGround" type="button">고도 입력 지우기</button></div>
 <div class="row" style="margin-top:6px"><a id="elevDirect" href="https://open-meteo.com/en/docs/elevation-api" target="_blank" rel="noopener noreferrer">🔍 자동 조회가 안 되면 API 응답 직접 확인</a></div>
 <p class="note" id="groundStatus">좌표를 추출한 뒤 조회하거나 고도를 직접 입력해 줘. 영상이 이륙 후 시작됐다면 이륙 지점 좌표를 직접 입력하는 게 좋아.</p>
 <div class="hint">GPX 해발고도(&lt;ele&gt;) = <b>이륙 지점 해발고도 + OSD AGL</b>. 자동 지형 고도는 근사값이므로 구글어스 등과 비교해 수동 보정할 수 있어. 실제 지면과의 높이 차이나 법정 비행고도 판정용이 아니야.</div>
@@ -466,7 +466,7 @@ $('clearGround').addEventListener('click',()=>{
 $('altType').addEventListener('change',()=>{
  const relative=$('altType').value==='relative';
  for(const id of ['ground','takeoffLat','takeoffLon'])$(id).disabled=!relative;
- $('autoGround').disabled=!relative||!loaded;
+ $('autoGround').disabled=!relative||active;
  $('groundStatus').textContent=relative?'상대고도(AGL)에 이륙 지점 해발고도를 더해서 저장해.':'이미 해발고도(ASL)이므로 지면 기준 고도를 더하지 않아.';
 });
 async function getElevationFromService(url,field){
@@ -481,7 +481,7 @@ async function getElevationFromService(url,field){
  }finally{clearTimeout(stop)}
 }
 $('autoGround').addEventListener('click',async()=>{
- if(active||!loaded)return;
+ if(active)return;
  const latText=$('takeoffLat').value.trim(),lonText=$('takeoffLon').value.trim();
  if(Boolean(latText)!==Boolean(lonText)){
   $('groundStatus').textContent='이륙 지점 위도와 경도를 모두 입력하거나 모두 비워 둬.';return;
@@ -516,7 +516,7 @@ $('autoGround').addEventListener('click',async()=>{
   $('groundStatus').textContent='자동 조회 실패 ('+errors.join(' / ')+
    '). 위의 API 확인 링크에서 elevation 숫자를 볼 수 있으면 직접 입력해 줘.';
   log('고도 자동 조회 실패: '+errors.join(' / '));
- }finally{$('autoGround').disabled=!loaded||active||$('altType').value!=='relative'}
+ }finally{$('autoGround').disabled=active||$('altType').value!=='relative'}
 });
 function reduceJitter(points){
  let adjusted=0;
