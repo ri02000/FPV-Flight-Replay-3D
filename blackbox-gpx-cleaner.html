@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Blackbox GPX 정리기 | FPV Flight Replay 3D</title>
+<style>
+:root{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;color:#eaf5fc;background:#071725}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at top,#153d53 0,#071725 60%);padding:32px 18px}
+main{width:min(820px,100%);margin:0 auto}.eyebrow{font-size:12px;letter-spacing:.12em;color:#76ccf6;font-weight:750}
+h1{font-size:clamp(27px,4vw,38px);line-height:1.2;margin:14px 0}.lede{color:#bfd4e0;line-height:1.75;margin:0 0 22px}
+.panel{border:1px solid #35657d;background:rgba(10,34,51,.94);border-radius:18px;padding:25px;margin-bottom:18px;box-shadow:0 12px 36px #03101a66}
+h2{font-size:18px;margin:0 0 14px}.steps{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 22px}.step{padding:9px 12px;border:1px solid #345a73;background:#122e44;border-radius:10px;font-size:13px;color:#d2e9f6}
+.drop{cursor:pointer;display:block;border:2px dashed #4b8aa6;background:#0c273a;border-radius:14px;padding:32px 18px;text-align:center;transition:background .2s,border-color .2s}
+.drop:hover,.drop.dragging{border-color:#76d8ff;background:#15394f}.drop strong{display:block;font-size:18px}.drop span{display:block;margin-top:8px;font-size:13px;color:#a8c8d9}
+input[type=file]{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden}
+.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:20px 0}.row label{display:flex;align-items:center;gap:9px;cursor:pointer;color:#d9edf8;font-size:14px}
+input[type=checkbox]{accent-color:#279ad9;width:17px;height:17px}
+button,.btn{font-family:inherit;display:inline-block;background:#187fc6;color:white;border:0;border-radius:10px;padding:13px 20px;font-weight:750;font-size:15px;cursor:pointer;text-decoration:none;text-align:center}
+button:hover:not(:disabled),.btn:hover{background:#219ee7}button:disabled{opacity:.45;cursor:not-allowed}.secondary{background:#1b3449;border:1px solid #345a73;color:#d9f2ff}.secondary:hover{background:#244f6d}
+.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+.status{font-size:14px;line-height:1.6;margin-top:15px;color:#b7d6ea;min-height:25px;white-space:pre-wrap}.error{color:#ffb3aa}.success{color:#7ce5bd}
+.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:16px 0}.stat{border:1px solid #32627a;border-radius:10px;padding:12px;background:#102a40}.stat small{font-size:12px;color:#adcbdc;display:block}.stat b{display:block;font-size:20px;margin-top:4px;word-break:break-word}
+.note{font-size:13px;line-height:1.65;color:#a6c4d4}.note strong{color:#d5f0fb}.muted{color:#8db4c9}
+@media(max-width:520px){.panel{padding:18px}.stats{grid-template-columns:1fr}.stat{display:flex;justify-content:space-between;align-items:center}.stat b{margin:0}}
+</style>
+</head>
+<body>
+<main>
+<div class="eyebrow">FPV FLIGHT REPLAY 3D · BLACKBOX GPS TOOL v1</div>
+<h1>블랙박스 GPX 자동 정리기 🚁</h1>
+<p class="lede">Betaflight Blackbox Explorer가 내보낸 GPX에는 같은 GPS 좌표가 수십 번 반복될 수 있어. 실제 GPS 좌표가 바뀐 기록만 남겨서 3D 비행 재생에 알맞은 GPX로 만들어 줘. 설치도, 로그인도 필요 없어.</p>
+<div class="steps"><div class="step">① Blackbox Explorer에서 GPX 내보내기</div><div class="step">② 여기서 GPX 선택</div><div class="step">③ 정리된 GPX 다운로드</div></div>
+<section class="panel">
+<h2>원본 GPX 선택</h2>
+<label class="drop" id="drop" for="source">
+<strong id="fileTitle">📂 GPX 파일을 선택하거나 여기로 끌어다 놓기</strong>
+<span id="fileHint">예: btfl_004.bbl.gpx · 원본 .bbl이 아니라 내보낸 .gpx 파일</span>
+</label>
+<input id="source" type="file" accept=".gpx,application/gpx+xml,application/xml,text/xml">
+<div class="row"><label><input type="checkbox" id="zeroAlt" checked> 시작 고도를 0m로 맞추기 (상대고도)</label></div>
+<div class="actions"><button type="button" id="convert" disabled>🧹 GPX 정리하기</button><button type="button" id="download" disabled class="secondary">⬇ 정리된 GPX 다운로드</button></div>
+<div id="status" class="status" aria-live="polite">GPX 파일을 선택해 줘.</div>
+<div id="stats" class="stats" hidden>
+ <div class="stat"><small>원본 트랙포인트</small><b id="original">-</b></div>
+ <div class="stat"><small>실제 위치 기록</small><b id="retained">-</b></div>
+ <div class="stat"><small>제거된 반복 포인트</small><b id="removed">-</b></div>
+</div>
+</section>
+<section class="panel">
+<h2>정리된 경로 사용하기</h2>
+<p class="note">다운로드한 <strong>_clean.gpx</strong> 파일을 우리 FPV Flight Replay 3D에서 열면 돼. GPS 위치를 임의로 이동하거나 곡선으로 만들지 않고, <strong>원래 측정 시간과 GPS 위치를 보존</strong>해. 시작 고도 0m 옵션은 기록된 전체 고도에 동일한 수치만 빼서 상대고도로 바꾸는 기능이야.</p>
+<a href="./vworld-native-replay-v0818.html" target="_blank" rel="noopener" class="btn secondary">🌍 3D 비행 재생기 열기</a>
+<p class="note">원본 비행 데이터가 틀렸다면 이 도구만으로 바로잡을 수는 없어. 결과가 비정상적으로 튀는 경우 GPS 품질을 따로 확인해야 해. 파일은 브라우저 안에서만 읽고, 서버로 전송하지 않아.</p>
+</section>
+<p class="muted" style="font-size:12px;text-align:center">FPV Flight Replay 3D · 원본 BBL 해독기가 아닌 Betaflight GPX 정리 도구</p>
+</main>
+<script>
+(function(){
+'use strict';
+const $=id=>document.getElementById(id);
+const number=n=>Number(n).toLocaleString('ko-KR');
+let source=null,output=null,downloadName='';
+const status=(message,error=false,ok=false)=>{$('status').textContent=message;$('status').className='status'+(error?' error':ok?' success':'')};
+function setFile(file){
+  if(!file)return;
+  source=file;output=null;downloadName='';
+  $('download').disabled=true;$('stats').hidden=true;
+  $('convert').disabled=!file.name.toLowerCase().endsWith('.gpx');
+  $('fileTitle').textContent='📄 '+file.name;
+  $('fileHint').textContent=(file.size/1024/1024).toFixed(2)+'MB · 브라우저에서 처리';
+  status(file.name.toLowerCase().endsWith('.gpx')?'파일 준비 완료. GPX 정리하기를 눌러 줘.':'이 도구는 Betaflight에서 내보낸 .gpx 파일만 처리해. .bbl은 먼저 GPX로 내보내 줘.',!file.name.toLowerCase().endsWith('.gpx'));
+}
+$('source').addEventListener('change',e=>setFile(e.target.files?.[0]));
+const drop=$('drop');
+drop.addEventListener('dragover',e=>{e.preventDefault();drop.classList.add('dragging')});
+drop.addEventListener('dragleave',()=>drop.classList.remove('dragging'));
+drop.addEventListener('drop',e=>{e.preventDefault();drop.classList.remove('dragging');setFile(e.dataTransfer?.files?.[0])});
+function attr(text,name){
+  const match=text.match(new RegExp('(?:^|\\s)'+name+'\\s*=\\s*(["\\x27])([^"\\x27]+)\\1','i'));
+  return match?match[2]:null;
+}
+function child(text,name){
+  const pattern=new RegExp('<(?:[a-z][\\w.-]*:)?'+name+'\\b[^>]*>([^<]*)<\\/(?:[a-z][\\w.-]*:)?'+name+'\\s*>','i');
+  const match=text.match(pattern);
+  return match?match[1].trim():null;
+}
+function escapeXml(value){return String(value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+function convert(text,relative){
+  if(!/<(?:[a-z][\w.-]*:)?gpx\b/i.test(text.slice(0,5000)))throw Error('GPX 파일 형식이 아니야.');
+  const pattern=/<(?:[a-z][\w.-]*:)?trkpt\b([^>]*)>([\s\S]*?)<\/(?:[a-z][\w.-]*:)?trkpt\s*>/gi;
+  const outputRows=[];
+  let original=0,duplicates=0,invalid=0,baseAlt=null,prev=null,prevTime=-Infinity,firstTime=NaN,lastTime=NaN;
+  for(const match of text.matchAll(pattern)){
+    original++;
+    const lat=Number(attr(match[1],'lat')),lon=Number(attr(match[1],'lon'));
+    const timestamp=child(match[2],'time');
+    const tm=Date.parse(timestamp||'');
+    const rawAlt=child(match[2],'ele');
+    const alt=rawAlt===null?0:Number(rawAlt);
+    if(!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180
+       ||!Number.isFinite(tm)||!Number.isFinite(alt)||tm<=prevTime){
+       invalid++;continue;
+    }
+    prevTime=tm;
+    if(baseAlt===null)baseAlt=alt;
+    if(!Number.isFinite(firstTime))firstTime=tm;
+    lastTime=tm;
+    // Betaflight exports the same GPS sensor sample at the much faster FC log rate.
+    // Keep only actual GPS changes; no smoothing or invented coordinates.
+    if(prev&&lat===prev.lat&&lon===prev.lon&&alt===prev.alt){
+       duplicates++;continue;
+    }
+    const elevation=relative?alt-baseAlt:alt;
+    outputRows.push('<trkpt lat="'+lat.toFixed(7)+'" lon="'+lon.toFixed(7)+'"><ele>'+
+      elevation.toFixed(2)+'</ele><time>'+escapeXml(timestamp)+'</time></trkpt>');
+    prev={lat,lon,alt};
+  }
+  if(original<2||outputRows.length<2)throw Error('유효한 GPS 위치와 시간이 2개 이상 있는 GPX가 필요해.');
+  const meta=relative?'첫 고도를 0m로 보정한 상대고도':'원본 고도 유지';
+  const xml='<?xml version="1.0" encoding="UTF-8"?>\n'+
+    '<gpx version="1.1" creator="FPV Flight Replay 3D GPX Cleaner" xmlns="http://www.topografix.com/GPX/1/1">'+
+    '<metadata><name>Blackbox GPS Clean</name><desc>'+escapeXml('반복 GPS 기록 제거; '+meta+'; 실제 기록 시각 보존')+'</desc></metadata>'+
+    '<trk><name>Blackbox GPS Clean</name><trkseg>\n'+outputRows.join('\n')+'\n</trkseg></trk></gpx>';
+  return {xml,original,retained:outputRows.length,duplicates,invalid,duration:(lastTime-firstTime)/1000};
+}
+$('convert').addEventListener('click',async()=>{
+  if(!source)return;
+  $('convert').disabled=true;$('download').disabled=true;output=null;
+  status('원본 GPX를 분석하고 반복된 GPS 값을 정리하고 있어…');
+  await new Promise(resolve=>setTimeout(resolve,40));
+  try{
+    if(source.size>150*1024*1024)throw Error('파일이 150MB를 넘어서 처리하지 않았어. 짧은 비행 GPX로 나눠 줘.');
+    const text=await source.text();
+    const result=convert(text,$('zeroAlt').checked);
+    output=new Blob([result.xml],{type:'application/gpx+xml;charset=utf-8'});
+    downloadName=source.name.replace(/\.gpx$/i,'')+'_clean.gpx';
+    $('original').textContent=number(result.original);
+    $('retained').textContent=number(result.retained);
+    $('removed').textContent=number(result.duplicates);
+    $('stats').hidden=false;
+    $('download').disabled=false;
+    status('완료! '+number(result.original)+'개 중 실제 좌표 '+number(result.retained)+'개를 보존했어. 반복 좌표 '+number(result.duplicates)+'개 제거'+(result.invalid?' · 형식·시간 오류 '+number(result.invalid)+'개 제외':'')+' · 원래 기록 시각 보존 · 약 '+result.duration.toFixed(1)+'초 비행.',false,true);
+  }catch(e){status('변환 실패: '+(e?.message||String(e)),true)}
+  finally{$('convert').disabled=false}
+});
+$('download').addEventListener('click',()=>{
+  if(!output)return;
+  const url=URL.createObjectURL(output);
+  const a=document.createElement('a');a.href=url;a.download=downloadName;
+  document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),30000);
+});
+})();
+</script>
+</body>
+</html>
