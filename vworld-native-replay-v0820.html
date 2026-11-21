@@ -1634,7 +1634,8 @@ $('preloadOnly').addEventListener('click',async()=>{
   if(preloadActive){preloadCancelled=true;updatePreloadStatus('중단 요청 확인, 카메라 복원 중…');return}
   if(recordPreparing)return;
   $('preloadOnly').textContent='■ 지도 미리 읽기 중단';
-  await preloadReplayMap();
+  try{await preloadReplayMap()}
+  finally{if(!preloadActive)$('preloadOnly').textContent='↻ 지도 미리 읽기만 실행'}
 });
 $('recordVideo').addEventListener('click',()=>{
   if(recordPreparing){preloadCancelled=true;return}
